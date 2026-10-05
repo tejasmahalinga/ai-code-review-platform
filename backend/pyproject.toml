@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reviewbot"
+version = "0.1.0.dev0"
+description = "Self-hosted, bring-your-own-key AI code review for pull requests"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "Django>=5.2,<5.3",
+    "djangorestframework>=3.15,<4",
+    "drf-spectacular>=0.28",
+    "celery[redis]>=5.4,<6",
+    "psycopg[binary]>=3.2,<4",
+    "dj-database-url>=2.2",
+    "cryptography>=43",
+    "PyJWT[crypto]>=2.9",
+    "httpx2>=2.13",
+    "pathspec>=0.12",
+    "structlog>=24.4",
+    "django-prometheus>=2.3",
+    "argon2-cffi>=23.1",
+    "gunicorn>=23",
+    "jsonschema>=4.23",
+    "openai>=3.0,<4",
+    "anthropic>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-django>=4.9",
+    "pytest-cov>=5",
+    "factory-boy>=3.3",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "django-stubs>=5.1",
+    "djangorestframework-stubs>=3.15",
+]
+
+[tool.setuptools.packages.find]
+include = ["config*", "apps*"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.test_settings"
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = ["ignore::DeprecationWarning:celery.*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "DJ", "SIM", "RUF"]
+ignore = ["S101", "RUF012", "S105", "S106"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B017"]
+
+[tool.mypy]
+python_version = "3.11"
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+exclude = ["migrations/", "tests/"]
+
+[tool.django-stubs]
+django_settings_module = "config.test_settings"
+
+[tool.coverage.run]
+source = ["apps"]
+omit = ["*/migrations/*"]

@@ -1,0 +1,113 @@
+# Reviewbot self-hosting stack.
+#   cp .env.example .env   # then fill in the secrets
+#   docker compose up -d --build
+# Dashboard: http://localhost:3000 (or REVIEWBOT_PUBLIC_URL behind your reverse proxy).
+# Optional automatic HTTPS:  docker compose --profile caddy up -d   (set REVIEWBOT_DOMAIN)
+
+name: reviewbot
+
+x-backend: &backend
+  image: ${REVIEWBOT_API_IMAGE:-reviewbot-api:local}
+  build:
+    context: ../backend
+  env_file: .env
+  environment:
+    DATABASE_URL: postgres://${POSTGRES_USER:-reviewbot}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-reviewbot}
+    REDIS_URL: redis://redis:6379/0
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reviewbot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-reviewbot}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    <<: *backend
+    command: ["migrate"]
+    restart: "no"
+
+  api:
+    <<: *backend
+    command: ["api"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "8000"
+
+  worker:
+    <<: *backend
+    command: ["worker"]
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  beat:
+    <<: *backend
+    command: ["beat"]
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    image: ${REVIEWBOT_WEB_IMAGE:-reviewbot-web:local}
+    build:
+      context: ../frontend
+      args:
+        REVIEWBOT_API_URL: http://api:8000
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${REVIEWBOT_HTTP_PORT:-3000}:3000"
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["caddy"]
+    restart: unless-stopped
+    environment:
+      REVIEWBOT_DOMAIN: ${REVIEWBOT_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - web
+      - api
+
+volumes:
+  postgres-data:
+  caddy-data:

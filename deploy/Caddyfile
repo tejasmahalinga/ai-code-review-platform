@@ -1,0 +1,14 @@
+# Automatic HTTPS in front of Reviewbot. API and webhook traffic go straight to Django;
+# everything else is served by the Next.js dashboard.
+{$REVIEWBOT_DOMAIN} {
+	encode zstd gzip
+
+	@backend path /api/* /webhooks/* /healthz /readyz
+	handle @backend {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
