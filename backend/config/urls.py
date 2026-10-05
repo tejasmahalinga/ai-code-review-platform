@@ -5,9 +5,16 @@ from rest_framework.routers import SimpleRouter
 from apps.accounts import views as accounts
 from apps.core import views as core
 from apps.credentials import views as credentials
+from apps.repositories import views as repositories
+from apps.reviews import views as reviews
+from apps.webhooks import views as webhooks
 
 router = SimpleRouter(trailing_slash=False)
 router.register("llm-credentials", credentials.LLMCredentialViewSet, basename="llm-credential")
+router.register("repositories", repositories.RepositoryViewSet, basename="repository")
+router.register("pull-requests", reviews.PullRequestViewSet, basename="pull-request")
+router.register("reviews", reviews.ReviewRunViewSet, basename="review")
+router.register("webhook-deliveries", webhooks.WebhookDeliveryViewSet, basename="webhook-delivery")
 
 api_v1: list[URLPattern | URLResolver] = [
     path("auth/csrf", accounts.CsrfView.as_view()),
@@ -17,12 +24,20 @@ api_v1: list[URLPattern | URLResolver] = [
     path("setup/status", accounts.SetupStatusView.as_view()),
     path("setup", accounts.SetupView.as_view()),
     path("llm-providers", credentials.LLMProvidersView.as_view()),
+    path("integrations/github", repositories.GitHubIntegrationView.as_view()),
+    path("integrations/github/manual", repositories.GitHubManualConfigView.as_view()),
+    path("integrations/github/manifest", repositories.GitHubManifestView.as_view()),
+    path("integrations/github/callback", repositories.GitHubCallbackView.as_view()),
+    path("integrations/github/installed", repositories.GitHubInstalledView.as_view()),
+    path("integrations/github/sync", repositories.GitHubSyncView.as_view()),
+    path("usage", reviews.UsageView.as_view()),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("", include(router.urls)),
 ]
 
 urlpatterns = [
     path("api/v1/", include(api_v1)),
+    path("webhooks/github", webhooks.github_webhook),
     path("healthz", core.healthz),
     path("readyz", core.readyz),
     path("metrics", core.metrics),
