@@ -2,6 +2,14 @@
 
 > Status: v0.1 planning baseline. Working name "Reviewbot" is a placeholder (see Open Question 9).
 
+> **Implementation status (v0.1.0-dev):** every P0 feature in this plan (milestones M1–M4) is implemented on
+> Django REST Framework + PostgreSQL + Celery with a Next.js dashboard, covered by backend unit/API tests and a
+> Docker Compose end-to-end smoke test (`scripts/e2e/`). Deviations from the plan, all deliberate:
+> - Auto-review triggers on `opened` / `reopened` / `ready_for_review`. `synchronize` updates the PR but is not
+>   auto-reviewed until RE-10 (P1); manual re-run covers it.
+> - Manual re-run requires admin in v0.1 (all users are admins until ADM-02).
+> - Cost (`cost_usd`) is recorded as null until the pricing table ships with KEY-05.
+
 ## 1. Product overview
 
 **Vision.** A self-hosted service that installs on your Git provider, reviews every pull/merge request with the LLM *you* pay for, and posts actionable, severity-ranked inline findings back on the PR — with a dashboard to control keys, repos, rules, and cost. No code or keys leave your infrastructure except the diff sent to the LLM provider you chose (or none, with a local OpenAI-compatible model such as Ollama/vLLM).
@@ -360,7 +368,7 @@ Key relationships: Installation 1→N Repository; Repository 1→1 Settings, 1�
 
 ## 5. API surface sketch
 
-Base `/api/v1`, JSON, session-cookie auth + CSRF (P2: bearer tokens). OpenAPI 3 schema published at `/api/v1/schema/` (drf-spectacular); the frontend's TS types are generated from it. Errors: `{"error": {"code", "message", "details"}}`. Cursor pagination.
+Base `/api/v1`, JSON, session-cookie auth + CSRF (P2: bearer tokens). OpenAPI 3 schema published at `/api/v1/schema/` (drf-spectacular); the frontend's TS types in `frontend/src/lib/types.ts` mirror it (generating them from the schema in CI is a P1 chore). Errors: `{"error": {"code", "message", "details"}}`. Cursor pagination.
 
 | Method & path | Purpose | Pri | Min role |
 |---|---|---|---|

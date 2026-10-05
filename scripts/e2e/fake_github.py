@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""A tiny stand-in for the GitHub REST API, for end-to-end tests (stdlib only).
+
+Serves one installation (id 77) with one repository (acme/demo) and one pull request (#1).
+Reviews posted by Reviewbot are recorded and exposed at GET /_posted.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PATCH = "\n".join(
+    [
+        "@@ -0,0 +1,8 @@",
+        "+import os",
+        "+",
+        '+API_KEY = "sk-live-hardcoded-value"',
+        "+",
+        "+def run(expr):",
+        "+    # TODO: validate input",
+        "+    return eval(expr)",
+        "+",
+    ]
+)
+PR = {
+    "number": 1,
+    "title": "Add expression runner",
+    "user": {"login": "octocat"},
+    "state": "open",
+    "draft": False,
+    "html_url": "https://github.example/acme/demo/pull/1",
+    "base": {"ref": "main", "sha": "b" * 40},
+    "head": {"ref": "feature", "sha": "a" * 40},
+}
+FILES = [
+    {"filename": "app/runner.py", "status": "added", "additions": 8, "deletions": 0, "patch": PATCH},
+    {"filename": "package-lock.json", "status": "modified", "additions": 3, "deletions": 1, "patch": "@@ -1 +1 @@\n-a\n+b"},
+]
+REPO = {"id": 4242, "name": "demo", "full_name": "acme/demo", "private": True, "default_branch": "main",
+        "html_url": "https://github.example/acme/demo"}
+POSTED: list[dict] = []
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, status: int, payload: object) -> None:
+        body = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt: str, *args: object) -> None:  # quieter logs
+        print("fake-github:", fmt % args, flush=True)
+
+    def do_GET(self) -> None:
+        path = self.path.split("?")[0]
+        page = re.search(r"[?&]page=(\d+)", self.path)
+        first_page = page is None or page.group(1) == "1"
+        if path == "/_posted":
+            return self._send(200, POSTED)
+        if path == "/app/installations":
+            return self._send(200, [{"id": 77, "account": {"login": "acme", "type": "Organization"}}] if first_page else [])
+        if path == "/app/installations/77":
+            return self._send(200, {"id": 77, "account": {"login": "acme", "type": "Organization"}})
+        if path == "/installation/repositories":
+            return self._send(200, {"total_count": 1, "repositories": [REPO] if first_page else []})
+        if path == "/repos/acme/demo/pulls/1":
+            return self._send(200, PR)
+        if path == "/repos/acme/demo/pulls/1/files":
+            return self._send(200, FILES if first_page else [])
+        match = re.fullmatch(r"/repos/acme/demo/pulls/1/reviews/(\d+)/comments", path)
+        if match:
+            review = POSTED[int(match.group(1)) - 1]
+            return self._send(200, [
+                {"id": int(match.group(1)) * 100 + i, "path": c["path"], "line": c["line"],
+                 "html_url": f"https://github.example/acme/demo/pull/1#discussion_r{i}"}
+                for i, c in enumerate(review["comments"])
+            ])
+        return self._send(404, {"message": "Not Found"})
+
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length") or 0)
+        data = json.loads(self.rfile.read(length) or b"{}")
+        if self.path == "/app/installations/77/access_tokens":
+            return self._send(201, {"token": "ghs_faketoken0000000000000000", "expires_at": "2099-01-01T00:00:00Z"})
+        if self.path == "/repos/acme/demo/pulls/1/reviews":
+            POSTED.append(data)
+            review_id = len(POSTED)
+            return self._send(200, {"id": review_id, "html_url": f"https://github.example/acme/demo/pull/1#pullrequestreview-{review_id}"})
+        return self._send(404, {"message": "Not Found"})
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "9000"))
+    print(f"fake-github listening on :{port}", flush=True)
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()  # noqa: S104

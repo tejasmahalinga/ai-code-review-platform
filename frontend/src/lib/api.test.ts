@@ -49,7 +49,7 @@ describe("api()", () => {
         error: { code: "validation_error", message: "api_key: Validation failed", details: { api_key: ["Validation failed"] } },
       }),
     );
-    const error = await api("/llm-credentials", { method: "POST", body: {} }).catch((e) => e);
+    const error = (await api("/llm-credentials", { method: "POST", body: {} }).catch((e) => e)) as ApiError;
     expect(error).toBeInstanceOf(ApiError);
     expect(error.status).toBe(400);
     expect(error.code).toBe("validation_error");

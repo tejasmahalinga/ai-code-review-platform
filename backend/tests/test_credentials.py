@@ -188,3 +188,27 @@ def test_logs_redact_secrets():
     assert PLAINTEXT not in output
     assert "BEGIN RSA PRIVATE KEY" not in output
     assert "[REDACTED]" in output
+
+
+def test_rotate_encryption_key_command(settings, fake_credential):
+    from django.core.management import call_command
+
+    from tests.factories import make_connection
+
+    connection = make_connection()
+    new_key = "bmV3LWtleS1uZXcta2V5LW5ldy1rZXktbmV3LWtleSE="
+    old_keys = list(settings.REVIEWBOT_ENCRYPTION_KEYS)
+    settings.REVIEWBOT_ENCRYPTION_KEYS = [new_key, *old_keys]
+    crypto.reset_cache()
+    try:
+        call_command("rotate_encryption_key", stdout=io.StringIO())
+        settings.REVIEWBOT_ENCRYPTION_KEYS = [new_key]
+        crypto.reset_cache()
+        fake_credential.refresh_from_db()
+        connection.refresh_from_db()
+        assert fake_credential.get_secret() == "fake-key-123456"
+        assert connection.webhook_secret == "whsec-test-secret"
+        assert "PRIVATE KEY" in connection.private_key
+    finally:
+        settings.REVIEWBOT_ENCRYPTION_KEYS = old_keys
+        crypto.reset_cache()

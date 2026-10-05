@@ -13,20 +13,25 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   loading?: boolean;
 };
 
+const BUTTON_VARIANTS = {
+  primary: "bg-slate-900 text-white hover:bg-slate-700",
+  secondary: "border border-slate-300 bg-white text-slate-800 hover:bg-slate-100",
+  danger: "border border-red-300 bg-white text-red-700 hover:bg-red-50",
+  ghost: "text-slate-700 hover:bg-slate-100",
+};
+
+export function buttonClass(variant: keyof typeof BUTTON_VARIANTS = "primary", className?: string): string {
+  return cx(
+    "inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+    BUTTON_VARIANTS[variant],
+    className,
+  );
+}
+
 export function Button({ variant = "primary", loading, className, children, disabled, ...props }: ButtonProps) {
-  const styles = {
-    primary: "bg-slate-900 text-white hover:bg-slate-700",
-    secondary: "border border-slate-300 bg-white text-slate-800 hover:bg-slate-100",
-    danger: "border border-red-300 bg-white text-red-700 hover:bg-red-50",
-    ghost: "text-slate-700 hover:bg-slate-100",
-  }[variant];
   return (
     <button
-      className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
-        styles,
-        className,
-      )}
+      className={buttonClass(variant, className)}
       disabled={disabled || loading}
       {...props}
     >

@@ -1,0 +1,38 @@
+# Overlay for the end-to-end smoke test: points the API at a stub GitHub and enables the offline
+# demo LLM provider. Usage (from deploy/):
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml --env-file e2e.env up -d --build --wait
+#   BASE_URL=http://localhost:3000 FAKE_GITHUB_URL=http://localhost:9000 python3 ../scripts/e2e/smoke_test.py
+
+services:
+  fake-github:
+    image: python:3.12-alpine
+    command: ["python", "/app/fake_github.py"]
+    volumes:
+      - ../scripts/e2e/fake_github.py:/app/fake_github.py:ro
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/_posted')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    environment: &e2e-env
+      GITHUB_API_URL: http://fake-github:9000
+      REVIEWBOT_ENABLE_FAKE_PROVIDER: "true"
+
+  api:
+    environment: *e2e-env
+    depends_on:
+      fake-github:
+        condition: service_healthy
+
+  worker:
+    environment: *e2e-env
+    depends_on:
+      fake-github:
+        condition: service_healthy
+
+  beat:
+    environment: *e2e-env
