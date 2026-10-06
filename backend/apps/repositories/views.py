@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -328,8 +329,17 @@ class RepositoryViewSet(
 
 
 class GitLabConnectSerializer(serializers.Serializer[Any]):
-    url = serializers.URLField(max_length=500, required=False, default="https://gitlab.com")
+    # Not URLField: self-managed instances often use internal host names without a dot (http://gitlab:8080).
+    url = serializers.CharField(max_length=500, required=False, default="https://gitlab.com")
     token = serializers.CharField(max_length=500, trim_whitespace=True)
+
+    def validate_url(self, value: str) -> str:
+        parts = urlsplit(value.strip())
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise serializers.ValidationError("Enter the GitLab address, e.g. https://gitlab.example.com.")
+        if parts.username or parts.password or parts.query or parts.fragment:
+            raise serializers.ValidationError("Enter only the GitLab address, without credentials or query.")
+        return value.strip().rstrip("/")
 
 
 class GitLabIntegrationView(APIView):

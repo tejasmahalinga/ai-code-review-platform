@@ -334,6 +334,26 @@ def test_connect_syncs_projects(api, gitlab_api):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("url", "ok"),
+    [
+        ("http://gitlab:8080", True),
+        ("https://gitlab.internal.example/", True),
+        ("ftp://gitlab.example", False),
+        ("https://user:pw@gitlab.example", False),
+        ("gitlab.example", False),
+    ],
+)
+def test_connect_url_validation(url, ok):
+    from apps.repositories.views import GitLabConnectSerializer
+
+    serializer = GitLabConnectSerializer(data={"url": url, "token": "t"})
+    assert serializer.is_valid() is ok
+    if ok:
+        assert not serializer.validated_data["url"].endswith("/")
+
+
+@pytest.mark.django_db
 def test_connect_rejects_tokens_without_api_scope(api, gitlab_api):
     gitlab_api.routes.insert(
         0, gitlab_api.add("GET", r"/personal_access_tokens/self$", {"scopes": ["read_api"]})
