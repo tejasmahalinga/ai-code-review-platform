@@ -19,7 +19,7 @@ import {
   formatDate,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
-import type { GitHubIntegration, GitHubManifest, Paginated, WebhookDelivery } from "@/lib/types";
+import type { GitHubIntegration, GitHubManifest, GitLabIntegration, Paginated, WebhookDelivery } from "@/lib/types";
 
 const RESULT_MESSAGES: Record<string, { kind: "success" | "error" | "info"; text: string }> = {
   connected: { kind: "success", text: "GitHub App created. Now install it on the repositories you want reviewed." },
@@ -140,12 +140,147 @@ function Integrations() {
               </Button>
             </div>
           </Card>
-          <DeliveryLog />
         </div>
       ) : (
         <ConnectGitHub webUrl={github.data!.web_url} webhookUrl={github.data!.webhook_url} />
       )}
+      <div className="mt-8">
+        <GitLabSection />
+      </div>
+      <div className="mt-8">
+        <DeliveryLog />
+      </div>
     </>
+  );
+}
+
+function GitLabSection() {
+  const queryClient = useQueryClient();
+  const gitlab = useQuery({ queryKey: ["gitlab"], queryFn: () => api<GitLabIntegration>("/integrations/gitlab") });
+  const [url, setUrl] = useState("https://gitlab.com");
+  const [token, setToken] = useState("");
+  const [showSecret, setShowSecret] = useState(false);
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["gitlab"] });
+    queryClient.invalidateQueries({ queryKey: ["repositories"] });
+  };
+  const connect = useMutation({
+    mutationFn: () => api<{ repositories: number }>("/integrations/gitlab", { method: "POST", body: { url, token } }),
+    onSuccess: () => {
+      setToken("");
+      refresh();
+    },
+  });
+  const sync = useMutation({
+    mutationFn: () => api<{ repositories: number }>("/integrations/gitlab/sync", { method: "POST" }),
+    onSuccess: refresh,
+  });
+  const disconnect = useMutation({ mutationFn: () => api("/integrations/gitlab", { method: "DELETE" }), onSuccess: () => queryClient.invalidateQueries() });
+  const errors = connect.error instanceof ApiError ? connect.error.fieldErrors() : {};
+
+  if (gitlab.isLoading) return <Spinner />;
+  if (gitlab.error) return <Alert>{errorMessage(gitlab.error)}</Alert>;
+  const data = gitlab.data!;
+
+  if (!data.connected) {
+    return (
+      <Card title="GitLab">
+        <p className="mb-4 text-sm text-slate-600">
+          Reviewbot acts as a GitLab user. Create a dedicated bot user (or a group access token), give it the{" "}
+          <strong>Developer</strong> role on the projects to review (<strong>Maintainer</strong> lets Reviewbot add project
+          webhooks itself), and create an access token with the <code>api</code> scope. Works with gitlab.com and
+          self-managed GitLab 15.0 or later.
+        </p>
+        <form
+          className="grid gap-4 md:grid-cols-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            connect.mutate();
+          }}
+        >
+          {connect.error && Object.keys(errors).length === 0 && (
+            <div className="md:col-span-2">
+              <Alert>{errorMessage(connect.error)}</Alert>
+            </div>
+          )}
+          <Field label="GitLab URL" error={errors.url}>
+            <Input type="url" required value={url} onChange={(e) => setUrl(e.target.value)} />
+          </Field>
+          <Field label="Access token" hint="Scope: api. Stored encrypted." error={errors.token}>
+            <Input type="password" autoComplete="off" required value={token} onChange={(e) => setToken(e.target.value)} placeholder="glpat-…" />
+          </Field>
+          <div className="md:col-span-2">
+            <Button type="submit" loading={connect.isPending}>
+              Connect GitLab
+            </Button>
+          </div>
+        </form>
+      </Card>
+    );
+  }
+
+  return (
+    <Card
+      title={
+        <span className="flex items-center gap-2">
+          GitLab <Badge tone="green">connected</Badge>
+        </span>
+      }
+      actions={
+        <Button variant="secondary" loading={sync.isPending} onClick={() => sync.mutate()}>
+          Sync projects
+        </Button>
+      }
+    >
+      <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">
+        <dt className="text-slate-500">Instance</dt>
+        <dd>
+          <TextLink href={data.web_url!} external>
+            {data.web_url}
+          </TextLink>
+        </dd>
+        <dt className="text-slate-500">Acting as</dt>
+        <dd>@{data.username}</dd>
+        <dt className="text-slate-500">Projects</dt>
+        <dd>
+          {data.repositories} with Developer access or more · <TextLink href="/repositories">enable them on Repositories</TextLink>
+        </dd>
+        <dt className="text-slate-500">Webhook URL</dt>
+        <dd className="font-mono text-xs">{data.webhook_url}</dd>
+        <dt className="text-slate-500">Secret token</dt>
+        <dd className="flex items-center gap-2 font-mono text-xs">
+          {showSecret ? data.webhook_secret : "••••••••••••"}
+          <button type="button" className="font-sans text-sky-700 hover:underline" onClick={() => setShowSecret((v) => !v)}>
+            {showSecret ? "hide" : "show"}
+          </button>
+        </dd>
+      </dl>
+      <p className="mt-3 text-xs text-slate-500">
+        Enabling a project adds its webhook automatically when the bot user is a Maintainer. Otherwise add it under the
+        project&apos;s Settings → Webhooks with the URL and secret token above, and trigger &quot;Merge request events&quot; and
+        &quot;Comments&quot;.
+      </p>
+      {sync.data && (
+        <div className="mt-4">
+          <Alert kind="success">Synced {sync.data.repositories} projects.</Alert>
+        </div>
+      )}
+      {(sync.error || disconnect.error) && (
+        <div className="mt-4">
+          <Alert>{errorMessage(sync.error ?? disconnect.error)}</Alert>
+        </div>
+      )}
+      <div className="mt-6 border-t border-slate-200 pt-4">
+        <Button
+          variant="danger"
+          onClick={() => {
+            if (confirm("Disconnect GitLab? This deletes the stored token and all GitLab repository and review history. Remove the project webhooks in GitLab as well.")) disconnect.mutate();
+          }}
+        >
+          Disconnect GitLab
+        </Button>
+      </div>
+    </Card>
   );
 }
 

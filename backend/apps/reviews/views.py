@@ -65,7 +65,7 @@ class PullRequestViewSet(
 
     def get_queryset(self) -> QuerySet[PullRequest]:
         latest = ReviewRun.objects.filter(pull_request=OuterRef("pk")).order_by("-created_at", "-id")
-        qs = PullRequest.objects.select_related("repository").annotate(
+        qs = PullRequest.objects.select_related("repository__installation__connection").annotate(
             latest_status=Subquery(latest.values("status")[:1]),
             latest_run_id=Subquery(latest.values("id")[:1]),
             latest_risk=Subquery(latest.values("risk_score")[:1]),

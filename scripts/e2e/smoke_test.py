@@ -185,6 +185,58 @@ def notification_checks(pull_request_id: int) -> None:
     expect(note["headers"].get("x-reviewbot-signature-256", "").startswith("sha256="), "notification is signed")
 
 
+def gitlab_checks() -> None:
+    """INT-03: connect GitLab, enable a project (webhook created), review a merge request end to end."""
+    gitlab_url = os.environ.get("GITLAB_URL", "http://fake-github:9000")
+    status, data = call("POST", "/api/v1/integrations/gitlab", {"url": gitlab_url, "token": "glpat-e2e-token"})
+    expect(status == 201 and data["repositories"] == 1, f"GitLab connected and projects synced ({status} {data})")
+    status, info = call("GET", "/api/v1/integrations/gitlab")
+    secret = info["webhook_secret"]
+    status, repos = call("GET", "/api/v1/repositories")
+    project = next(r for r in repos if r["full_name"] == "acme/gl-demo")
+    expect(project["provider"] == "gitlab", "GitLab project listed with its provider")
+    status, data = call("PATCH", f"/api/v1/repositories/{project['id']}", {"enabled": True})
+    expect(status == 200 and data["webhook_managed"] is True, f"project enabled and webhook created ({data})")
+
+    event = {
+        "object_kind": "merge_request",
+        "user": {"id": 77, "username": "gl-dev"},
+        "project": {"id": 2001, "path_with_namespace": "acme/gl-demo"},
+        "object_attributes": {
+            "iid": 3, "title": "Add GitLab runner", "state": "opened", "action": "open", "draft": False,
+            "target_branch": "main", "source_branch": "feature", "last_commit": {"id": "d" * 40},
+            "url": "https://gitlab.example/acme/gl-demo/-/merge_requests/3",
+        },
+    }
+    raw = json.dumps(event).encode()
+    status, data = call("POST", "/webhooks/gitlab", raw=raw, headers={
+        "X-Gitlab-Token": secret, "X-Gitlab-Event": "Merge Request Hook", "X-Gitlab-Event-UUID": "e2e-gl-1"})
+    expect(status == 202 and data["reason"] == "review_queued", f"merge request webhook accepted ({status} {data})")
+    status, bad = call("POST", "/webhooks/gitlab", raw=raw, headers={
+        "X-Gitlab-Token": "wrong", "X-Gitlab-Event": "Merge Request Hook", "X-Gitlab-Event-UUID": "e2e-gl-2"})
+    expect(status == 401, "webhook with a wrong token is rejected")
+
+    status, prs = call("GET", f"/api/v1/pull-requests?repository={project['id']}&state=")
+    pr = prs["results"][0]
+
+    def finished():
+        review = pr["id"] and call("GET", f"/api/v1/pull-requests/{pr['id']}/reviews")[1]
+        return review and review[0]["status"] in ("completed", "failed", "skipped") and review[0]
+
+    run = wait_for(finished, "GitLab review")
+    status, run = call("GET", f"/api/v1/reviews/{run['id']}")
+    expect(run["status"] == "completed", f"GitLab review completed ({run['status']} {run['error']})")
+    with urllib.request.urlopen(f"{FAKE_GITHUB}/_gitlab", timeout=10) as response:  # noqa: S310
+        recorded = json.loads(response.read())
+    expect(len(recorded["hooks"]) == 1 and recorded["hooks"][0]["token"] == secret, "project hook carries the secret")
+    expect(len(recorded["discussions"]) >= 1, "inline findings posted as diff discussions")
+    position = recorded["discussions"][0]["position"]
+    expect(position["head_sha"] == "d" * 40 and position["new_path"] == "app/runner.py", "discussion is anchored")
+    expect(len(recorded["notes"]) == 1 and "Reviewbot" in recorded["notes"][0]["body"], "summary posted as a note")
+    states = [s["state"] for s in recorded["statuses"]]
+    expect(states[:1] == ["running"] and states[-1] in ("success", "failed"), f"commit status reported ({states})")
+
+
 def private_key() -> str:
     return subprocess.run(
         ["openssl", "genrsa", "2048"], check=True, capture_output=True, text=True
@@ -334,6 +386,7 @@ def main() -> None:
     team_checks()
     cost_checks()
     notification_checks(run["pull_request"]["id"])
+    gitlab_checks()
     print("\nEnd-to-end smoke test passed.")
 
 

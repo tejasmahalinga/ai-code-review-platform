@@ -56,6 +56,15 @@ names the stage that broke.
 The Celery task retries on Git rate limits (`RetryLater`). A lease prevents two workers from processing the
 same run, and a run that already has a posted review is never posted twice.
 
+## Git providers
+
+`apps/git_providers/base.py` defines the `GitProvider` protocol the pipeline uses. It covers fetching a PR or MR,
+listing changed files, posting a review, reading a file, comparing commits, and reporting a status.
+`github/` implements it with a GitHub App installation token. `gitlab/` implements it with a bot user's access
+token: MRs map to `number = iid`, inline comments become diff discussions, and checks become commit statuses.
+Webhooks arrive at `/webhooks/github` (HMAC signature) and `/webhooks/gitlab` (secret token). Both share one
+idempotent ingestion path (`apps/webhooks/views.py`) and provider-specific handlers.
+
 ## Users and access
 
 - One instance serves one organization: many GitHub installations and repositories, and many users.

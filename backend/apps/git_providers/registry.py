@@ -14,9 +14,14 @@ if TYPE_CHECKING:
 def _default_factory(repository: Repository) -> GitProvider:
     from apps.git_providers.github.app import installation_client
 
-    provider = repository.installation.connection.provider
+    connection = repository.installation.connection
+    provider = connection.provider
     if provider == "github":
         return installation_client(repository.installation)
+    if provider == "gitlab":
+        from apps.git_providers.gitlab.client import client_for_connection
+
+        return client_for_connection(connection)
     raise NotImplementedError(f"Git provider '{provider}' is not supported yet")
 
 

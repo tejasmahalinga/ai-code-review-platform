@@ -45,6 +45,8 @@ class InstallationSerializer(serializers.ModelSerializer[Installation]):
 
 class RepositorySerializer(serializers.ModelSerializer[Repository]):
     installation_account = serializers.CharField(source="installation.account_login", read_only=True)
+    provider = serializers.CharField(source="installation.connection.provider", read_only=True)
+    webhook_managed = serializers.SerializerMethodField()
     credential_name = serializers.SerializerMethodField()
     model = serializers.SerializerMethodField()
     auto_review = serializers.SerializerMethodField()
@@ -61,12 +63,20 @@ class RepositorySerializer(serializers.ModelSerializer[Repository]):
             "status",
             "enabled",
             "installation_account",
+            "provider",
+            "webhook_managed",
             "credential_name",
             "model",
             "auto_review",
             "pull_request_count",
         ]
         read_only_fields = [f for f in fields if f != "enabled"]
+
+    def get_webhook_managed(self, obj: Repository) -> bool | None:
+        """GitLab only: whether Reviewbot created the project webhook (None for GitHub, which needs none)."""
+        if obj.installation.connection.provider != "gitlab":
+            return None
+        return bool(obj.webhook_id)
 
     def get_credential_name(self, obj: Repository) -> str | None:
         settings = getattr(obj, "settings", None)

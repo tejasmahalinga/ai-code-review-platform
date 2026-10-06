@@ -42,6 +42,7 @@ class FakeGitProvider:
     files: dict[tuple[str, int], list[ChangedFile]] = field(default_factory=dict)
     posted: list[PostedCall] = field(default_factory=list)
     reject_inline: bool = False
+    reject_lines: set[tuple[str, int]] = field(default_factory=set)  # refused one by one (GitLab style)
     fail_with: GitProviderError | None = None
     comparisons: dict[tuple[str, str, str], CompareResult] = field(default_factory=dict)
     compare_calls: list[tuple[str, str, str]] = field(default_factory=list)
@@ -74,7 +75,7 @@ class FakeGitProvider:
         body: str,
         comments: list[InlineComment],
     ) -> PostedReview:
-        from apps.git_providers.github.client import InlineCommentsRejected
+        from apps.git_providers.base import InlineCommentsRejected
 
         if self.reject_inline and comments:
             raise InlineCommentsRejected("Unprocessable Entity: pull_request_review_thread.line")
@@ -84,6 +85,9 @@ class FakeGitProvider:
         base = f"https://github.example/{repo_full_name}/pull/{number}"
         review = PostedReview(id=str(review_id), html_url=f"{base}#pullrequestreview-{review_id}")
         for index, comment in enumerate(comments):
+            if (comment.path, comment.line) in self.reject_lines:
+                review.rejected.add((comment.path, comment.line))
+                continue
             comment_id = f"{review_id}{index:03d}"
             review.comments[(comment.path, comment.line)] = (comment_id, f"{base}#discussion_r{comment_id}")
         return review

@@ -23,21 +23,20 @@ class DuplicateRun(Exception):
 
 
 def upsert_pull_request(repository: Repository, info: PullRequestInfo) -> PullRequest:
-    pr, _ = PullRequest.objects.update_or_create(
-        repository=repository,
-        number=info.number,
-        defaults={
-            "title": info.title,
-            "author_login": info.author_login,
-            "state": info.state,
-            "is_draft": info.is_draft,
-            "base_ref": info.base_ref,
-            "head_ref": info.head_ref,
-            "head_sha": info.head_sha,
-            "html_url": info.html_url,
-            "updated_at": timezone.now(),
-        },
-    )
+    defaults = {
+        "title": info.title,
+        "author_login": info.author_login,
+        "state": info.state,
+        "is_draft": info.is_draft,
+        "base_ref": info.base_ref,
+        "head_ref": info.head_ref,
+        "head_sha": info.head_sha,
+        "html_url": info.html_url,
+        "updated_at": timezone.now(),
+    }
+    if not info.author_login:
+        del defaults["author_login"]  # GitLab update events do not name the author; keep what we know
+    pr, _ = PullRequest.objects.update_or_create(repository=repository, number=info.number, defaults=defaults)
     return pr
 
 

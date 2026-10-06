@@ -28,6 +28,8 @@ class GitProviderConnection(models.Model):
     encrypted_private_key = models.TextField(blank=True)
     encrypted_webhook_secret = models.TextField(blank=True)
     encrypted_client_secret = models.TextField(blank=True)
+    # GitLab: access token of the bot user Reviewbot acts as (scope "api").
+    encrypted_access_token = models.TextField(blank=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     def __str__(self) -> str:
@@ -59,6 +61,13 @@ class GitProviderConnection(models.Model):
     @property
     def client_secret(self) -> str:
         return self._dec(self.encrypted_client_secret)
+
+    @property
+    def access_token(self) -> str:
+        return self._dec(self.encrypted_access_token)
+
+    def set_access_token(self, token: str) -> None:
+        self.encrypted_access_token = self._enc(token)
 
     @property
     def install_url(self) -> str:
@@ -106,6 +115,8 @@ class Repository(models.Model):
     html_url = models.URLField(max_length=500, blank=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
     enabled = models.BooleanField(default=False)
+    # GitLab: id of the project webhook Reviewbot created (GitHub Apps need none).
+    webhook_id = models.CharField(max_length=64, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

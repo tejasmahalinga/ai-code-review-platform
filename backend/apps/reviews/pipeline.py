@@ -23,8 +23,13 @@ from apps.credentials import budgets, pricing
 from apps.credentials.models import LLMCredential
 from apps.credentials.services import mark_invalid, provider_for
 from apps.git_providers import registry as git_registry
-from apps.git_providers.base import ChangedFile, GitProvider, GitProviderError, InlineComment
-from apps.git_providers.github.client import InlineCommentsRejected
+from apps.git_providers.base import (
+    ChangedFile,
+    GitProvider,
+    GitProviderError,
+    InlineComment,
+    InlineCommentsRejected,
+)
 from apps.llm.base import AuthenticationFailed, InvalidResponse, LLMError, LLMProvider, TokenUsage
 from apps.notifications import services as notifications
 from apps.repositories.models import SEVERITY_RANK
@@ -403,9 +408,9 @@ def _start_check(run: ReviewRun, git: GitProvider, snap: dict[str, Any], log: An
         )
     except GitProviderError as exc:
         if exc.status in (403, 404):
-            log.warning("github.checks_permission_missing", error=str(exc))
+            log.warning("git.checks_permission_missing", error=str(exc))
         else:
-            log.warning("github.check_run_create_failed", error=str(exc))
+            log.warning("git.check_run_create_failed", error=str(exc))
         return
     run.save(update_fields=["check_run_id"])
 
@@ -447,7 +452,7 @@ def _complete_check(run: ReviewRun, git: GitProvider | None, log: Any) -> None:
             summary=summary,
         )
     except GitProviderError as exc:
-        log.warning("github.check_run_update_failed", error=str(exc))
+        log.warning("git.check_run_update_failed", error=str(exc))
 
 
 def _raise_git(exc: GitProviderError) -> None:
@@ -455,11 +460,11 @@ def _raise_git(exc: GitProviderError) -> None:
         raise RetryLater(exc.retry_after or 60, str(exc)) from exc
     if exc.status in (401, 403, 404):
         raise StageFailure(
-            f"GitHub denied access ({exc.status}). Check that the GitHub App is still installed on this "
-            f"repository. Details: {exc}",
+            f"The Git provider denied access ({exc.status}). Check that the GitHub App is still installed on "
+            f"this repository, or that the GitLab token still has access to the project. Details: {exc}",
             reason="git_access_denied",
         ) from exc
-    raise StageFailure(f"GitHub API error: {exc}", reason="git_error") from exc
+    raise StageFailure(f"Git provider API error: {exc}", reason="git_error") from exc
 
 
 def _filter_files(
@@ -775,6 +780,10 @@ def _post(
         inline = []
     run.provider_review_id, run.provider_review_url = review.id, review.html_url
     run.save(update_fields=["provider_review_id", "provider_review_url"])
+    if review.rejected:
+        moved = [f for f in inline if (f.path, f.line_end or 0) in review.rejected]
+        Finding.objects.filter(pk__in=[f.pk for f in moved]).update(post_status=PostStatus.IN_SUMMARY)
+        inline = [f for f in inline if f not in moved]
     for f in inline:
         found = review.comments.get((f.path, f.line_end or 0))
         if found:

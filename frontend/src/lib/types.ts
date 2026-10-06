@@ -237,6 +237,9 @@ export interface Repository {
   status: "active" | "removed";
   enabled: boolean;
   installation_account: string;
+  provider: GitProviderId;
+  webhook_managed: boolean | null;
+  webhook_warning?: string;
   credential_name: string | null;
   model: string;
   auto_review: boolean;
@@ -262,7 +265,7 @@ export interface ReviewRunSummary {
 
 export interface PullRequest {
   id: number;
-  repository: { id: number; full_name: string };
+  repository: { id: number; full_name: string; provider: GitProviderId };
   number: number;
   title: string;
   author_login: string;
@@ -428,3 +431,22 @@ export const NOTIFICATION_EVENTS: { id: string; label: string; hint: string }[] 
   { id: "budget.threshold", label: "LLM budget alerts", hint: "A key reaches 80% or 100% of its monthly budget." },
   { id: "digest.weekly", label: "Weekly digest", hint: "Mondays: reviews, findings, triage, cost and the riskiest PRs." },
 ];
+
+export type GitProviderId = "github" | "gitlab" | "bitbucket";
+
+export interface GitLabIntegration {
+  connected: boolean;
+  webhook_url: string;
+  web_url?: string;
+  username?: string;
+  webhook_secret?: string;
+  repositories?: number;
+}
+
+/** "#12" on GitHub, "!12" for GitLab merge requests. */
+export function prRef(provider: GitProviderId | undefined, number: number): string {
+  return provider === "gitlab" ? `!${number}` : `#${number}`;
+}
+
+export const PROVIDER_LABEL: Record<GitProviderId, string> = { github: "GitHub", gitlab: "GitLab", bitbucket: "Bitbucket" };
+

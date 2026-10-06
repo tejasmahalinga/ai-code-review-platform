@@ -23,7 +23,7 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { Paginated, PullRequest, Repository } from "@/lib/types";
-import { SEVERITIES } from "@/lib/types";
+import { SEVERITIES, prRef } from "@/lib/types";
 
 const REVIEW_STATUSES = ["queued", "running", "completed", "failed", "skipped", "none"];
 
@@ -71,7 +71,7 @@ function PullRequests() {
 
   return (
     <>
-      <PageHeader title="Pull requests" description="Every pull request Reviewbot has seen, across all repositories." />
+      <PageHeader title="Pull requests" description="Every pull request and merge request Reviewbot has seen, across all repositories." />
       <div className="mb-4 grid max-w-6xl gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Field label="Repository">
           <Select value={filters.repository} onChange={(e) => setFilter("repository", e.target.value)}>
@@ -159,7 +159,7 @@ function PullRequests() {
                   <td className="px-4 py-2">
                     <div className="text-xs text-slate-500">{pr.repository.full_name}</div>
                     <a href={pr.html_url} target="_blank" rel="noreferrer" className="font-medium hover:underline">
-                      #{pr.number} {pr.title}
+                      {prRef(pr.repository.provider, pr.number)} {pr.title}
                     </a>
                     <div className="text-xs text-slate-500">by {pr.author_login || "unknown"}</div>
                   </td>

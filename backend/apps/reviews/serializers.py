@@ -80,7 +80,11 @@ class PullRequestSerializer(serializers.ModelSerializer[PullRequest]):
         ]
 
     def get_repository(self, obj: PullRequest) -> dict[str, Any]:
-        return {"id": obj.repository_id, "full_name": obj.repository.full_name}
+        return {
+            "id": obj.repository_id,
+            "full_name": obj.repository.full_name,
+            "provider": obj.repository.installation.connection.provider,
+        }
 
     def get_latest_review(self, obj: PullRequest) -> dict[str, Any] | None:
         latest: dict[int, ReviewRun] = self.context.get("latest_runs", {})

@@ -18,10 +18,14 @@ export default function RepositoriesPage() {
     queryFn: () => api<GitHubIntegration>("/integrations/github"),
     enabled: isAdmin,
   });
+  const [webhookWarning, setWebhookWarning] = useState<string | null>(null);
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
       api<Repository>(`/repositories/${id}`, { method: "PATCH", body: { enabled } }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repositories"] }),
+    onSuccess: (repo) => {
+      setWebhookWarning(repo.webhook_warning ? `${repo.full_name}: ${repo.webhook_warning}` : null);
+      queryClient.invalidateQueries({ queryKey: ["repositories"] });
+    },
   });
 
   const filtered = (repos.data ?? []).filter((r) => r.full_name.toLowerCase().includes(query.toLowerCase()));
@@ -39,6 +43,13 @@ export default function RepositoriesPage() {
           )
         }
       />
+      {webhookWarning && (
+        <div className="mb-4">
+          <Alert kind="warning">
+            {webhookWarning} <TextLink href="/settings/integrations">Webhook URL and secret</TextLink>
+          </Alert>
+        </div>
+      )}
       {toggle.error && (
         <div className="mb-4">
           <Alert>{errorMessage(toggle.error)}</Alert>
@@ -82,7 +93,12 @@ export default function RepositoriesPage() {
                       <a href={r.html_url} target="_blank" rel="noreferrer" className="font-medium hover:underline">
                         {r.full_name}
                       </a>{" "}
-                      {r.private && <Badge>private</Badge>}
+                      {r.provider === "gitlab" && <Badge tone="orange">GitLab</Badge>} {r.private && <Badge>private</Badge>}{" "}
+                      {r.enabled && r.webhook_managed === false && (
+                        <span title="Add the project webhook in GitLab by hand (see Integrations), or give the bot user the Maintainer role and enable again.">
+                          <Badge tone="amber">webhook not managed</Badge>
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-2">
                       {r.credential_name ? (

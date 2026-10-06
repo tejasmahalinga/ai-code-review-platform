@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from typing import Any, cast
 
 from django.conf import settings
@@ -259,9 +260,9 @@ class RepositoryViewSet(
     http_method_names = ["get", "patch"]
 
     def get_queryset(self) -> QuerySet[Repository]:
-        qs = Repository.objects.select_related("installation", "settings", "settings__credential").annotate(
-            pull_request_count=Count("pull_requests")
-        )
+        qs = Repository.objects.select_related(
+            "installation__connection", "settings", "settings__credential"
+        ).annotate(pull_request_count=Count("pull_requests"))
         params = self.request.query_params
         if params.get("enabled") in ("true", "false"):
             qs = qs.filter(enabled=params["enabled"] == "true")
@@ -279,9 +280,22 @@ class RepositoryViewSet(
             return [IsReviewerOrReadOnly()]
         return super().get_permissions()
 
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().update(request, *args, **kwargs)
+        if warning := getattr(self, "_webhook_warning", ""):
+            response.data = {**response.data, "webhook_warning": warning}
+        return response
+
     def perform_update(self, serializer: Any) -> None:
         was_enabled = serializer.instance.enabled
         repository = serializer.save()
+        if repository.enabled and repository.installation.connection.provider == "gitlab":
+            try:
+                services.ensure_gitlab_webhook(repository)
+            except services.WebhookSetupError as exc:
+                # Reviews still work once someone adds the webhook by hand.
+                self._webhook_warning = str(exc)
+                logger.warning("gitlab.webhook_setup_failed", repository_id=repository.pk, error=str(exc))
         if repository.enabled != was_enabled:
             action_name = "repository.enabled" if repository.enabled else "repository.disabled"
             record(action_name, request=self.request, target=repository)
@@ -308,3 +322,105 @@ class RepositoryViewSet(
             if changes:
                 record("repository.settings_changed", request=request, target=repository, changes=changes)
         return Response(serializer.data)
+
+
+# --- GitLab (INT-03) ----------------------------------------------------------------------------
+
+
+class GitLabConnectSerializer(serializers.Serializer[Any]):
+    url = serializers.URLField(max_length=500, required=False, default="https://gitlab.com")
+    token = serializers.CharField(max_length=500, trim_whitespace=True)
+
+
+class GitLabIntegrationView(APIView):
+    """Connects a GitLab instance (gitlab.com or self-managed) with a bot user's access token."""
+
+    permission_classes = [IsAdmin]
+
+    def get(self, request: Request) -> Response:
+        connection = services.gitlab_connection()
+        data: dict[str, Any] = {
+            "connected": connection is not None,
+            "webhook_url": services.gitlab_webhook_url(),
+        }
+        if connection:
+            installation = connection.installations.filter(removed_at__isnull=True).first()
+            data.update(
+                web_url=connection.web_url,
+                username=installation.account_login if installation else "",
+                webhook_secret=connection.webhook_secret,  # admins need it to add webhooks by hand
+                repositories=Repository.objects.filter(
+                    installation__connection=connection, status=Repository.Status.ACTIVE
+                ).count(),
+            )
+        return Response(data)
+
+    @extend_schema(request=GitLabConnectSerializer, responses={201: None})
+    def post(self, request: Request) -> Response:
+        from apps.git_providers.gitlab.client import GitLabClient
+
+        if services.gitlab_connection():
+            raise Conflict("GitLab is already connected. Disconnect it first.")
+        serializer = GitLabConnectSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        web_url = serializer.validated_data["url"].rstrip("/")
+        token = serializer.validated_data["token"]
+        api_url = f"{web_url}/api/v4"
+        client = GitLabClient(api_url, token)
+        try:
+            user = client.current_user()
+            scopes = client.token_scopes()
+        except GitProviderError as exc:
+            raise ValidationError({"token": [f"GitLab rejected this token: {exc}"]}) from exc
+        if scopes is not None and "api" not in scopes:
+            raise ValidationError({"token": ["The token needs the 'api' scope."]})
+        connection = GitProviderConnection(
+            provider=GitProviderConnection.Provider.GITLAB,
+            web_url=web_url,
+            api_url=api_url,
+            app_name=user.get("username", ""),
+            app_html_url=user.get("web_url", ""),
+        )
+        connection.set_secrets(webhook_secret=secrets.token_urlsafe(32))
+        connection.set_access_token(token)
+        try:
+            connection.save()
+        except IntegrityError as exc:
+            raise Conflict("GitLab is already connected.") from exc
+        record(
+            "integration.gitlab_connected",
+            request=request,
+            web_url=web_url,
+            username=user.get("username", ""),
+        )
+        try:
+            result = services.sync_gitlab(connection)
+        except GitProviderError as exc:
+            logger.warning("gitlab.initial_sync_failed", error=str(exc))
+            result = {"installations": 0, "repositories": 0}
+        return Response(result, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=None, responses={204: None})
+    def delete(self, request: Request) -> Response:
+        connection = services.gitlab_connection()
+        if connection is None:
+            raise NotFound("GitLab is not connected.")
+        connection.delete()
+        record("integration.gitlab_disconnected", request=request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class GitLabSyncView(APIView):
+    permission_classes = [IsAdmin]
+
+    @extend_schema(request=None)
+    def post(self, request: Request) -> Response:
+        connection = services.gitlab_connection()
+        if connection is None:
+            raise NotFound("GitLab is not connected.")
+        try:
+            result = services.sync_gitlab(connection)
+        except GitProviderError as exc:
+            raise ValidationError(f"Sync failed: {exc}") from exc
+        record("integration.gitlab_synced", request=request, result=result)
+        return Response(result)

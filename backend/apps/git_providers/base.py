@@ -49,6 +49,8 @@ class PostedReview:
     # (path, line) -> (comment id, comment url), best effort.
     comments: dict[tuple[str, int], tuple[str, str]] = field(default_factory=dict)
     inline_rejected: bool = False
+    # Inline comments the provider refused individually (path, line); the provider put them in the summary.
+    rejected: set[tuple[str, int]] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,13 @@ class GitProviderError(Exception):
     @property
     def retryable(self) -> bool:
         return self.retry_after is not None or (self.status is not None and self.status >= 500)
+
+
+class InlineCommentsRejected(GitProviderError):
+    """The provider refused the inline comments; the caller re-posts with them in the summary."""
+
+    def __init__(self, message: str):
+        super().__init__(message, status=422)
 
 
 class GitProvider(Protocol):

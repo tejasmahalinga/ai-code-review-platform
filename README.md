@@ -12,6 +12,8 @@ A web dashboard manages API keys, repositories, per-repo review settings, and th
 ## Features
 
 - **GitHub App** created in one click through GitHub's manifest flow, with least-privilege permissions.
+- **GitLab** (gitlab.com and self-managed): merge request reviews with diff discussions, suggestions, commit
+  statuses, and automatic project webhooks.
 - **Bring your own key**: OpenAI, Anthropic, and OpenAI-compatible providers (e.g. Ollama). Keys are encrypted at
   rest, never returned by the API, and can be rotated in place.
 - **Structured findings** with category and severity, posted as one GitHub review with inline comments, a summary,
@@ -95,6 +97,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - [Self-hosting guide](docs/self-hosting.md) (Docker Compose)
 - [Deploying on Kubernetes](docs/kubernetes.md) (Helm)
 - [Connecting GitHub](docs/github-app.md)
+- [Connecting GitLab](docs/gitlab.md)
 - [Configuration reference](docs/configuration.md)
 - [Architecture](docs/architecture.md)
 

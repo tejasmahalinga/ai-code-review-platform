@@ -3,6 +3,22 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **GitLab support (INT-03):** reviews merge requests on gitlab.com and self-managed GitLab 15+.
+  - Connects with a bot user's access token.
+  - Syncs projects, and creates project webhooks automatically when the bot is a Maintainer (otherwise adds them by
+    hand with the shown URL and secret).
+  - Supports incremental reviews, `/reviewbot` commands for Developer+ members, and `.reviewbot.yml`.
+  - Posts inline findings as diff discussions with GitLab suggestions and the summary as a note, and reports a
+    `Reviewbot` commit status (only the severity gate fails it).
+  - See `docs/gitlab.md`.
+
+### Changed
+- The Git provider layer is now provider-neutral: inline comments a provider refuses one by one are moved into the
+  summary and marked "in summary".
+
 ## [0.3.0] — 2026-10-06
 
 ### Added

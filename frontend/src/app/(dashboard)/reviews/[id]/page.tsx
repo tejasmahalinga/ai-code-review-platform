@@ -23,7 +23,7 @@ import {
 import { api } from "@/lib/api";
 import { useRole } from "@/lib/hooks";
 import type { DismissReason, Finding, FindingState, ReviewRun, ReviewRunSummary, RunComparison } from "@/lib/types";
-import { SEVERITIES, formatUsd } from "@/lib/types";
+import { PROVIDER_LABEL, SEVERITIES, formatUsd, prRef } from "@/lib/types";
 
 const ACTIVE = new Set(["queued", "running"]);
 const POST_STATUS_TONE: Record<string, "green" | "sky" | "slate" | "amber"> = {
@@ -72,10 +72,10 @@ export default function ReviewPage() {
   return (
     <>
       <PageHeader
-        title={`#${pr.number} ${pr.title}`}
+        title={`${prRef(pr.repository.provider, pr.number)} ${pr.title}`}
         description={
           <>
-            {pr.repository.full_name} · <TextLink href={pr.html_url} external>Open on GitHub</TextLink>
+            {pr.repository.full_name} · <TextLink href={pr.html_url} external>Open on {PROVIDER_LABEL[pr.repository.provider] ?? "GitHub"}</TextLink>
             {run.provider_review_url && (
               <>
                 {" "}

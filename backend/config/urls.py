@@ -46,6 +46,8 @@ api_v1: list[URLPattern | URLResolver] = [
     path("integrations/github/callback", repositories.GitHubCallbackView.as_view()),
     path("integrations/github/installed", repositories.GitHubInstalledView.as_view()),
     path("integrations/github/sync", repositories.GitHubSyncView.as_view()),
+    path("integrations/gitlab", repositories.GitLabIntegrationView.as_view()),
+    path("integrations/gitlab/sync", repositories.GitLabSyncView.as_view()),
     path("usage", reviews.UsageView.as_view()),
     path("review-profiles", reviews.ReviewProfilesView.as_view()),
     path("feedback-stats", reviews.FeedbackStatsView.as_view()),
@@ -56,6 +58,7 @@ api_v1: list[URLPattern | URLResolver] = [
 urlpatterns = [
     path("api/v1/", include(api_v1)),
     path("webhooks/github", webhooks.github_webhook),
+    path("webhooks/gitlab", webhooks.gitlab_webhook),
     path("healthz", core.healthz),
     path("readyz", core.readyz),
     path("metrics", core.metrics),

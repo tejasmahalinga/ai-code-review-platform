@@ -16,6 +16,7 @@ from apps.git_providers.base import (
     CompareResult,
     GitProviderError,
     InlineComment,
+    InlineCommentsRejected,
     PostedReview,
     PullRequestInfo,
 )
@@ -327,11 +328,6 @@ def _changed_file(item: dict[str, Any]) -> ChangedFile:
         patch=item.get("patch"),
         previous_path=item.get("previous_filename"),
     )
-
-
-class InlineCommentsRejected(GitProviderError):
-    def __init__(self, message: str):
-        super().__init__(message, status=422)
 
 
 def _inline_payload(comment: InlineComment) -> dict[str, Any]:

@@ -6,6 +6,9 @@ Reviews posted by Reviewbot are recorded and exposed at GET /_posted, check runs
 POST /_push simulates pushing a new commit (head aaaa... -> cccc...) that adds app/util.py.
 Also answers the OAuth web flow for "Sign in with GitHub" as the user dev-octo (dev@example.com), and records
 notification webhooks POSTed to /_notify (listed at GET /_notifications).
+
+Under /api/v4 it also plays a small GitLab: bot user "reviewbot", project acme/gl-demo (id 2001) with merge
+request !3. Hooks, discussions, notes and commit statuses Reviewbot creates are listed at GET /_gitlab.
 """
 
 from __future__ import annotations
@@ -62,6 +65,22 @@ REPO = {"id": 4242, "name": "demo", "full_name": "acme/demo", "private": True, "
         "html_url": "https://github.example/acme/demo"}
 POSTED: list[dict] = []
 NOTIFICATIONS: list[dict] = []
+GL_PROJECT = "/api/v4/projects/acme%2Fgl-demo"
+GL_HEAD = "d" * 40
+GL_MR = {
+    "iid": 3,
+    "title": "Add GitLab runner",
+    "author": {"username": "gl-dev"},
+    "state": "opened",
+    "draft": False,
+    "target_branch": "main",
+    "source_branch": "feature",
+    "sha": GL_HEAD,
+    "diff_refs": {"base_sha": "e" * 40, "start_sha": "e" * 40, "head_sha": GL_HEAD},
+    "web_url": "https://gitlab.example/acme/gl-demo/-/merge_requests/3",
+}
+GL_DIFFS = [{"old_path": "app/runner.py", "new_path": "app/runner.py", "new_file": True, "diff": PATCH + "\n"}]
+GITLAB: dict[str, list] = {"hooks": [], "discussions": [], "notes": [], "statuses": []}
 OAUTH_USER = {"id": 9001, "login": "dev-octo", "name": "Dev Octo"}
 OAUTH_EMAILS = [{"email": "dev@example.com", "verified": True, "primary": True}]
 
@@ -94,6 +113,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, POSTED)
         if path == "/_notifications":
             return self._send(200, NOTIFICATIONS)
+        if path.startswith("/api/v4/") or path == "/_gitlab":
+            return self._gitlab_get(path)
         if path == "/user":
             return self._send(200, OAUTH_USER)
         if path == "/user/emails":
@@ -133,6 +154,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/login/oauth/access_token":  # form-encoded OAuth code exchange
             return self._send(200, {"access_token": "ghu_fakeusertoken000000000000", "token_type": "bearer"})
         data = json.loads(body or b"{}")
+        if self.path.startswith("/api/v4/"):
+            return self._gitlab_post(self.path.split("?")[0], data)
         if self.path == "/_notify":
             NOTIFICATIONS.append({"headers": {k.lower(): v for k, v in self.headers.items()}, "body": data})
             return self._send(200, {"ok": True})
@@ -161,6 +184,48 @@ class Handler(BaseHTTPRequestHandler):
             CHECKS[int(match.group(1)) - 1].update(data)
             return self._send(200, CHECKS[int(match.group(1)) - 1])
         return self._send(404, {"message": "Not Found"})
+
+
+    # --- GitLab (/api/v4) ---------------------------------------------------------------------------
+
+    def _gitlab_get(self, path: str) -> None:
+        if path == "/_gitlab":
+            return self._send(200, GITLAB)
+        if path == "/api/v4/user":
+            return self._send(200, {"id": 4242, "username": "reviewbot", "web_url": "https://gitlab.example/reviewbot"})
+        if path == "/api/v4/personal_access_tokens/self":
+            return self._send(200, {"scopes": ["api"]})
+        if path == "/api/v4/projects":
+            project = {"id": 2001, "path_with_namespace": "acme/gl-demo", "path": "gl-demo", "visibility": "private",
+                       "default_branch": "main", "web_url": "https://gitlab.example/acme/gl-demo"}
+            return self._send(200, [project])
+        if re.fullmatch(rf"{re.escape(GL_PROJECT)}/hooks/\d+", path):
+            return self._send(200, {"id": 31})
+        if path == f"{GL_PROJECT}/merge_requests/3":
+            return self._send(200, GL_MR)
+        if path == f"{GL_PROJECT}/merge_requests/3/diffs":
+            return self._send(200, GL_DIFFS)
+        if path == f"{GL_PROJECT}/merge_requests/3/versions":
+            return self._send(200, [{"head_commit_sha": GL_HEAD, "base_commit_sha": "e" * 40, "start_commit_sha": "e" * 40}])
+        if re.fullmatch(rf"{re.escape(GL_PROJECT)}/members/all/\d+", path):
+            return self._send(200, {"access_level": 40})
+        return self._send(404, {"message": "404 Not Found"})
+
+    def _gitlab_post(self, path: str, data: dict) -> None:
+        if path == f"{GL_PROJECT}/hooks":
+            GITLAB["hooks"].append(data)
+            return self._send(201, {"id": 31})
+        if path == f"{GL_PROJECT}/merge_requests/3/discussions":
+            GITLAB["discussions"].append(data)
+            note_id = 7000 + len(GITLAB["discussions"])
+            return self._send(201, {"id": f"d{note_id}", "notes": [{"id": note_id}]})
+        if path == f"{GL_PROJECT}/merge_requests/3/notes":
+            GITLAB["notes"].append(data)
+            return self._send(201, {"id": 9000 + len(GITLAB["notes"])})
+        if path.startswith(f"{GL_PROJECT}/statuses/"):
+            GITLAB["statuses"].append({**data, "sha": path.rsplit("/", 1)[1]})
+            return self._send(201, {"id": len(GITLAB["statuses"])})
+        return self._send(404, {"message": "404 Not Found"})
 
 
 if __name__ == "__main__":
