@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] — 2026-10-06
 
 ### Added
 - **Pricing (KEY-05):** an editable model price table, seeded with list prices for common OpenAI and Anthropic
@@ -25,6 +25,12 @@ All notable changes to this project are documented here. The format follows
 - Release notes are generated from this changelog, and release images carry an SBOM and provenance attestation.
   CI and releases scan the images with Trivy, and CI audits production npm dependencies. Dependabot is enabled,
   and the GitHub Actions now run on Node 24.
+
+### Upgrading
+- Migrations run automatically (the Compose `migrate` service, or the Helm migration Job). A migration installs the
+  default model prices. Check them under **LLM keys → Model prices**, since your contract prices may differ.
+- Reviews made before 0.3.0 have no recorded cost. Usage pages show them as unpriced until you run
+  **Recalculate unpriced usage**.
 
 ## [0.2.0] — 2026-10-06
 
