@@ -9,6 +9,7 @@ case "$1" in
       --workers "${GUNICORN_WORKERS:-3}" \
       --timeout "${GUNICORN_TIMEOUT:-60}" \
       --access-logfile - \
+      --no-control-socket \
       --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-*}"
     ;;
   worker)

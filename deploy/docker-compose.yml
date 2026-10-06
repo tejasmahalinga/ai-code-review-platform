@@ -65,7 +65,12 @@ services:
     <<: *backend
     command: ["worker"]
     healthcheck:
-      disable: true
+      test: ["CMD-SHELL", "celery -A config inspect ping --destination celery@$$HOSTNAME --timeout 5 >/dev/null"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+      start_interval: 3s
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -74,7 +79,13 @@ services:
     <<: *backend
     command: ["beat"]
     healthcheck:
-      disable: true
+      # The beat scheduler writes its schedule file once it is running (the dbm backend may add a suffix).
+      test: ["CMD-SHELL", "ls /tmp/celerybeat-schedule* >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+      start_interval: 3s
     depends_on:
       migrate:
         condition: service_completed_successfully
