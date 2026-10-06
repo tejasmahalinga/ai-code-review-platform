@@ -43,3 +43,16 @@ CI runs the same commands.
 ## License
 
 By contributing you agree that your contributions are licensed under the [Apache License 2.0](LICENSE).
+
+## Releasing (maintainers)
+
+1. Move the `## [Unreleased]` entries in `CHANGELOG.md` under `## [X.Y.Z] — YYYY-MM-DD`, and bump the versions in
+   `backend/pyproject.toml`, `backend/config/settings.py` (`SPECTACULAR_SETTINGS["VERSION"]`),
+   `frontend/package.json`, and `deploy/helm/reviewbot/Chart.yaml` (`version` and `appVersion`). Merge to `main`
+   once CI is green.
+2. Start the release: either push a `vX.Y.Z` tag, or open **Actions → Release → Run workflow** on `main` and enter
+   `X.Y.Z` (the workflow then creates the tag).
+3. The workflow publishes `ghcr.io/<owner>/reviewbot-{api,web}:X.Y.Z` (amd64 and arm64, with an SBOM and
+   provenance), pushes the Helm chart to `oci://ghcr.io/<owner>/charts/reviewbot`, scans the images with Trivy
+   (results in the run summary), and creates the GitHub release from the CHANGELOG section.
+4. First release only: set each new package's visibility to **Public** in the GitHub package settings.

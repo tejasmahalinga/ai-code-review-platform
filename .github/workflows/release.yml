@@ -22,7 +22,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
@@ -61,7 +61,7 @@ jobs:
           - name: web
             context: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -84,14 +84,41 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Attach an SBOM and SLSA provenance attestation to the image index.
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  scan:
+    runs-on: ubuntu-latest
+    needs: [prepare, images]
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan the published images (report only)
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          for name in api web; do
+            image="ghcr.io/$owner/reviewbot-$name:$VERSION"
+            docker pull --quiet "$image"
+            echo "### Trivy: $image" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.75.0 image \
+              --quiet --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 "$image" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          done
 
   chart:
     runs-on: ubuntu-latest
     needs: [prepare, images]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: azure/setup-helm@v4
         with:
           version: v3.16.4
@@ -109,9 +136,26 @@ jobs:
     runs-on: ubuntu-latest
     needs: [prepare, images, chart]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release create "$TAG" --generate-notes --verify-tag
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          # Release notes are the version's section of CHANGELOG.md ("## [1.2.3] ..."), plus install pointers.
+          awk -v heading="## [$VERSION]" 'index($0, "## ") == 1 { p = (index($0, heading) == 1); next } p' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::warning::No CHANGELOG.md section for $VERSION; using generated notes"
+            gh release create "$TAG" --generate-notes --verify-tag
+            exit 0
+          fi
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          cat >> notes.md <<NOTES
+
+          ### Install
+          - Images: \`ghcr.io/$owner/reviewbot-api:$VERSION\`, \`ghcr.io/$owner/reviewbot-web:$VERSION\` (amd64, arm64)
+          - Helm: \`helm install reviewbot oci://ghcr.io/$owner/charts/reviewbot --version $VERSION\`
+          - Docker Compose: see docs/self-hosting.md
+          NOTES
+          gh release create "$TAG" --notes-file notes.md --verify-tag --title "Reviewbot $TAG"
