@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import timedelta
+from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
@@ -18,6 +19,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.core.logging import get_logger
+from apps.credentials import budgets, pricing
 from apps.credentials.models import LLMCredential
 from apps.credentials.services import mark_invalid, provider_for
 from apps.git_providers import registry as git_registry
@@ -199,6 +201,15 @@ def _run(run: ReviewRun, *, git: GitProvider, llm: LLMProvider | None, log: Any)
     except GitProviderError as exc:
         _raise_git(exc)
 
+    if budgets.is_exceeded(credential) and not _budget_override(run):
+        message = (
+            "Reviews are paused: the LLM key for this repository has reached its monthly budget. "
+            "An admin can raise the budget, or start a review from the dashboard."
+        )
+        # Pushes would repeat the notice on every commit; the check run already shows it as skipped.
+        _skip(run, "budget_exceeded", message, None if run.trigger == ReviewRun.Trigger.PUSH else git)
+        return
+
     if len(files) > snap["max_files"]:
         _skip(
             run,
@@ -272,6 +283,10 @@ def _run(run: ReviewRun, *, git: GitProvider, llm: LLMProvider | None, log: Any)
     provider = llm or provider_for(credential, model=run.model or None)
     results = _review_chunks(provider, chunks, system_prompt, pr.title, snap.get("rules", []))
     _record_usage(run, credential, provider, results)
+    try:
+        budgets.check_thresholds(credential)
+    except Exception:  # alerts must never fail a review
+        log.exception("budget.check_failed")
     auth_errors = [r.error for r in results if isinstance(r.error, AuthenticationFailed)]
     if auth_errors:
         mark_invalid(credential, auth_errors[0])
@@ -528,6 +543,7 @@ def _review_chunks(
 def _record_usage(
     run: ReviewRun, credential: LLMCredential, provider: LLMProvider, results: list[ChunkResult]
 ) -> None:
+    price = pricing.price_for(credential.provider, provider.model)
     rows = []
     for result in results:
         for usage, latency_ms, error_code in result.calls:
@@ -540,15 +556,25 @@ def _record_usage(
                     model=provider.model,
                     input_tokens=usage.input_tokens,
                     output_tokens=usage.output_tokens,
+                    cost_usd=pricing.cost(price, usage.input_tokens, usage.output_tokens),
                     latency_ms=latency_ms,
                     status=LLMUsage.Status.ERROR if error_code else LLMUsage.Status.OK,
                     error_code=error_code,
                 )
             )
     LLMUsage.objects.bulk_create(rows)
+    costs = [r.cost_usd for r in rows]
+    priced = [c for c in costs if c is not None]
+    run.cost_usd = sum(priced, Decimal(0)) if costs and len(priced) == len(costs) else None
     run.input_tokens = sum(r.input_tokens for r in rows)
     run.output_tokens = sum(r.output_tokens for r in rows)
-    run.save(update_fields=["input_tokens", "output_tokens"])
+    run.save(update_fields=["input_tokens", "output_tokens", "cost_usd"])
+
+
+def _budget_override(run: ReviewRun) -> bool:
+    """An admin starting a review from the dashboard may exceed the budget; nothing else may."""
+    user = run.created_by
+    return run.trigger == ReviewRun.Trigger.MANUAL and user is not None and user.is_admin
 
 
 def _anchor(raw: RawFinding, diff: FileDiff | None) -> tuple[bool, int | None, int | None]:

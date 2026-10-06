@@ -21,9 +21,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts import github_oauth
-from apps.accounts.models import Invite, User
-from apps.accounts.permissions import IsAdmin
+from apps.accounts.models import ApiToken, Invite, User
+from apps.accounts.permissions import IsAdmin, SessionOnly
 from apps.accounts.serializers import (
+    ApiTokenSerializer,
     InviteAcceptSerializer,
     InviteSerializer,
     LoginSerializer,
@@ -162,6 +163,8 @@ class MeView(APIView):
 class PasswordChangeView(APIView):
     """Changes (or, for accounts created through GitHub, sets) the signed-in user's password."""
 
+    permission_classes = [SessionOnly]
+
     @extend_schema(request=PasswordChangeSerializer, responses={204: None})
     def post(self, request: Request) -> Response:
         user = cast(User, request.user)
@@ -175,6 +178,8 @@ class PasswordChangeView(APIView):
 
 
 class GitHubUnlinkView(APIView):
+    permission_classes = [SessionOnly]
+
     @extend_schema(request=None, responses={200: UserSerializer})
     def delete(self, request: Request) -> Response:
         user = cast(User, request.user)
@@ -490,3 +495,45 @@ class GitHubLoginCallbackView(APIView):
             record("user.signed_up", request=request, actor=user, target=user, role=role, method="github")
             return user, ""
         return None, "no_account"
+
+
+# --- Personal API tokens (ADM-06) ---------------------------------------------------------------
+
+
+class ApiTokenViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet[ApiToken],
+):
+    """The signed-in user's API tokens. Tokens act with their owner's role."""
+
+    serializer_class = ApiTokenSerializer
+    permission_classes = [SessionOnly]
+    pagination_class = None
+
+    def get_queryset(self) -> QuerySet[ApiToken]:
+        return ApiToken.objects.filter(user=cast(User, self.request.user), revoked_at__isnull=True)
+
+    @extend_schema(request=ApiTokenSerializer, responses={201: ApiTokenSerializer})
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+        if ApiToken.objects.filter(user=user, revoked_at__isnull=True).count() >= 20:
+            raise ValidationError("You already have 20 active tokens. Revoke one first.")
+        token, plaintext = ApiToken.issue(
+            user=user,
+            name=serializer.validated_data["name"],
+            expires_in_days=serializer.validated_data.get("expires_in_days"),
+        )
+        record("token.created", request=request, target=token, expires_at=str(token.expires_at or "never"))
+        # The token is returned exactly once.
+        return Response(
+            {**ApiTokenSerializer(token).data, "token": plaintext}, status=status.HTTP_201_CREATED
+        )
+
+    def perform_destroy(self, instance: ApiToken) -> None:
+        instance.revoked_at = timezone.now()
+        instance.save(update_fields=["revoked_at"])
+        record("token.revoked", request=self.request, target=instance)

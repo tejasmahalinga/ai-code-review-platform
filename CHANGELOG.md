@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Pricing (KEY-05):** an editable model price table, seeded with list prices for common OpenAI and Anthropic
+  models. Every LLM call and review now records its cost. Unpriced calls are flagged, and can be backfilled with
+  `POST /api/v1/model-prices/recalculate`.
+- **Monthly budgets per LLM key:** an alert at 80% and at 100% (audit event, plus email when SMTP is configured).
+  At 100%, automatic reviews with that key are skipped, with a PR notice and a skipped check run. Only admins can
+  still run reviews by hand.
+- **Usage and cost page (ADM-05):** cost, reviews, tokens, budgets, a daily cost chart, and breakdowns by repository
+  and model. `GET /api/v1/usage` gains `cost_usd`, `unpriced`, `reviews`, and `&export=csv`.
+- **Personal API tokens (ADM-06):** `Authorization: Bearer rbt_…`. A token acts with its owner's role, has an
+  optional expiry, is hashed at rest, and cannot mint more tokens.
+
 ## [0.2.0] — 2026-10-06
 
 ### Added

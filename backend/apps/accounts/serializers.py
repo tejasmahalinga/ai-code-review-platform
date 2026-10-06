@@ -5,7 +5,7 @@ from typing import Any
 from django.contrib.auth import password_validation
 from rest_framework import serializers
 
-from apps.accounts.models import Invite, User
+from apps.accounts.models import ApiToken, Invite, User
 
 
 class UserSerializer(serializers.ModelSerializer[User]):
@@ -111,3 +111,25 @@ class InviteAcceptSerializer(serializers.Serializer[Any]):
         candidate = User(email=invite.email, name=attrs.get("name", ""))
         password_validation.validate_password(attrs["password"], user=candidate)
         return attrs
+
+
+class ApiTokenSerializer(serializers.ModelSerializer[ApiToken]):
+    expires_in_days = serializers.ChoiceField(
+        choices=[7, 30, 90, 365], required=False, allow_null=True, write_only=True
+    )
+    active = serializers.BooleanField(source="is_active", read_only=True)
+
+    class Meta:
+        model = ApiToken
+        fields = [
+            "id",
+            "name",
+            "hint",
+            "created_at",
+            "expires_at",
+            "last_used_at",
+            "revoked_at",
+            "active",
+            "expires_in_days",
+        ]
+        read_only_fields = ["id", "hint", "created_at", "expires_at", "last_used_at", "revoked_at", "active"]

@@ -3,10 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { Alert, Badge, Button, Card, Field, Input, PageHeader, Spinner, buttonClass, errorMessage } from "@/components/ui";
+import { Alert, Badge, Button, Card, Field, Input, PageHeader, Select, Spinner, buttonClass, errorMessage, formatDate } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import { useMe } from "@/lib/hooks";
-import type { User } from "@/lib/types";
+import type { ApiToken, User } from "@/lib/types";
 import { ROLES } from "@/lib/types";
 
 const GITHUB_MESSAGES: Record<string, { kind: "success" | "error"; text: string }> = {
@@ -35,6 +35,7 @@ function Account() {
         <ProfileCard user={me.data} />
         <GitHubCard user={me.data} />
         <PasswordCard user={me.data} />
+        <TokensCard />
       </div>
     </>
   );
@@ -149,3 +150,84 @@ function PasswordCard({ user }: { user: User }) {
     </Card>
   );
 }
+
+type CreatedToken = ApiToken & { token: string };
+
+function TokensCard() {
+  const queryClient = useQueryClient();
+  const tokens = useQuery({ queryKey: ["api-tokens"], queryFn: () => api<ApiToken[]>("/auth/tokens") });
+  const [name, setName] = useState("");
+  const [expires, setExpires] = useState("90");
+  const [created, setCreated] = useState<CreatedToken | null>(null);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["api-tokens"] });
+  const create = useMutation({
+    mutationFn: () =>
+      api<CreatedToken>("/auth/tokens", { method: "POST", body: { name, expires_in_days: expires ? Number(expires) : null } }),
+    onSuccess: (data) => {
+      setCreated(data);
+      setName("");
+      refresh();
+    },
+  });
+  const revoke = useMutation({ mutationFn: (id: number) => api(`/auth/tokens/${id}`, { method: "DELETE" }), onSuccess: refresh });
+
+  return (
+    <Card title="API tokens">
+      <p className="mb-3 text-sm text-slate-600">
+        For scripts and integrations: send <code className="rounded bg-slate-100 px-1">Authorization: Bearer &lt;token&gt;</code> to{" "}
+        <code className="rounded bg-slate-100 px-1">/api/v1/…</code>. A token can do what your role can, except manage tokens and
+        your password.
+      </p>
+      <form
+        className="flex flex-wrap items-end gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          create.mutate();
+        }}
+      >
+        <div className="min-w-48 flex-1">
+          <Field label="Name">
+            <Input required maxLength={100} value={name} placeholder="e.g. cost export" onChange={(e) => setName(e.target.value)} />
+          </Field>
+        </div>
+        <Field label="Expires">
+          <Select value={expires} onChange={(e) => setExpires(e.target.value)}>
+            <option value="7">in 7 days</option>
+            <option value="30">in 30 days</option>
+            <option value="90">in 90 days</option>
+            <option value="365">in 1 year</option>
+            <option value="">never</option>
+          </Select>
+        </Field>
+        <Button type="submit" loading={create.isPending}>
+          Create token
+        </Button>
+      </form>
+      {create.error && <p className="mt-2 text-sm text-red-700">{errorMessage(create.error)}</p>}
+      {created && (
+        <div className="mt-4 space-y-2">
+          <Alert kind="success">Copy the token now. It is shown only once.</Alert>
+          <Input readOnly value={created.token} onFocus={(e) => e.target.select()} aria-label="New API token" className="font-mono" />
+        </div>
+      )}
+      {(tokens.data?.length ?? 0) > 0 && (
+        <ul className="mt-4 divide-y divide-slate-100 text-sm">
+          {tokens.data!.map((t) => (
+            <li key={t.id} className="flex flex-wrap items-center gap-3 py-2">
+              <span className="font-medium">{t.name}</span>
+              <code className="text-xs text-slate-500">{t.hint}…</code>
+              {!t.active && <Badge tone="amber">expired</Badge>}
+              <span className="text-xs text-slate-500">
+                last used {t.last_used_at ? formatDate(t.last_used_at) : "never"} · {t.expires_at ? `expires ${formatDate(t.expires_at)}` : "never expires"}
+              </span>
+              <Button variant="ghost" className="ml-auto" onClick={() => revoke.mutate(t.id)}>
+                Revoke
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+

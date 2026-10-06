@@ -44,3 +44,12 @@ class IsReviewerOrReadOnly(BasePermission):
         if not _authenticated(request):
             return False
         return request.method in SAFE_METHODS or getattr(request.user, "can_review", False)
+
+
+class SessionOnly(BasePermission):
+    """Blocks API-token requests, so a leaked token cannot mint more tokens or change the password."""
+
+    message = "Sign in to the dashboard to do this; API tokens cannot."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        return _authenticated(request) and request.auth is None

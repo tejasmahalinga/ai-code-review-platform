@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from rest_framework import serializers
 
-from apps.credentials.models import LLMCredential
+from apps.credentials import budgets
+from apps.credentials.models import LLMCredential, ModelPrice
 from apps.llm import registry
 
 
@@ -15,6 +17,10 @@ class LLMCredentialSerializer(serializers.ModelSerializer[LLMCredential]):
         write_only=True, required=False, allow_blank=True, max_length=4096, trim_whitespace=True
     )
     in_use_by = serializers.SerializerMethodField()
+    monthly_budget_usd = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=Decimal("0.01"), required=False, allow_null=True
+    )
+    budget = serializers.SerializerMethodField()
 
     class Meta:
         model = LLMCredential
@@ -32,6 +38,8 @@ class LLMCredentialSerializer(serializers.ModelSerializer[LLMCredential]):
             "created_at",
             "revoked_at",
             "in_use_by",
+            "monthly_budget_usd",
+            "budget",
         ]
         read_only_fields = [
             "last4",
@@ -41,6 +49,9 @@ class LLMCredentialSerializer(serializers.ModelSerializer[LLMCredential]):
             "created_at",
             "revoked_at",
         ]
+
+    def get_budget(self, obj: LLMCredential) -> dict[str, object]:
+        return budgets.status(obj).as_dict()
 
     def get_in_use_by(self, obj: LLMCredential) -> int:
         return obj.repository_settings.filter(repository__enabled=True).count()
@@ -66,3 +77,29 @@ class LLMCredentialSerializer(serializers.ModelSerializer[LLMCredential]):
         if info.requires_base_url and not base_url:
             raise serializers.ValidationError({"base_url": "This provider requires a base URL."})
         return attrs
+
+
+class ModelPriceSerializer(serializers.ModelSerializer[ModelPrice]):
+    input_usd_per_mtok = serializers.DecimalField(max_digits=10, decimal_places=4, min_value=Decimal(0))
+    output_usd_per_mtok = serializers.DecimalField(max_digits=10, decimal_places=4, min_value=Decimal(0))
+
+    class Meta:
+        model = ModelPrice
+        fields = [
+            "id",
+            "provider",
+            "model_prefix",
+            "input_usd_per_mtok",
+            "output_usd_per_mtok",
+            "is_default",
+            "updated_at",
+        ]
+        read_only_fields = ["is_default", "updated_at"]
+
+    def validate_provider(self, value: str) -> str:
+        if value and value not in registry.PROVIDERS:
+            raise serializers.ValidationError("Unknown provider. Leave empty to match any provider.")
+        return value
+
+    def validate_model_prefix(self, value: str) -> str:
+        return value.strip()

@@ -23,7 +23,7 @@ import {
 import { api } from "@/lib/api";
 import { useRole } from "@/lib/hooks";
 import type { DismissReason, Finding, FindingState, ReviewRun, ReviewRunSummary, RunComparison } from "@/lib/types";
-import { SEVERITIES } from "@/lib/types";
+import { SEVERITIES, formatUsd } from "@/lib/types";
 
 const ACTIVE = new Set(["queued", "running"]);
 const POST_STATUS_TONE: Record<string, "green" | "sky" | "slate" | "amber"> = {
@@ -140,6 +140,7 @@ export default function ReviewPage() {
               <Stat label="Model" value={<span className="font-mono text-xs">{run.model || "—"}</span>} />
               <Stat label="LLM key" value={run.credential_name ?? "—"} />
               <Stat label="Tokens (in / out)" value={`${run.input_tokens.toLocaleString()} / ${run.output_tokens.toLocaleString()}`} />
+              <Stat label="Cost" value={run.cost_usd === null ? (run.input_tokens ? "unpriced model" : "—") : formatUsd(run.cost_usd, 4)} />
               <Stat label="LLM requests" value={`${run.chunk_count}${run.chunks_failed ? ` (${run.chunks_failed} failed)` : ""}`} />
               <Stat label="Duration" value={run.duration_ms != null ? `${(run.duration_ms / 1000).toFixed(1)} s` : "—"} />
               <Stat label="Queued" value={formatDate(run.created_at)} />

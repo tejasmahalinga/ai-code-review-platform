@@ -17,8 +17,9 @@ from apps.accounts.models import User
 from apps.accounts.permissions import IsAdmin
 from apps.audit.services import diff, record
 from apps.core.logging import get_logger
-from apps.credentials.models import LLMCredential
-from apps.credentials.serializers import LLMCredentialSerializer
+from apps.credentials import pricing
+from apps.credentials.models import LLMCredential, ModelPrice
+from apps.credentials.serializers import LLMCredentialSerializer, ModelPriceSerializer
 from apps.credentials.services import check_credential, revalidate
 from apps.llm import registry
 from apps.llm.base import LLMError
@@ -147,3 +148,61 @@ class LLMProvidersView(APIView):
                 for p in registry.enabled_providers()
             ]
         )
+
+
+class ModelPriceViewSet(viewsets.ModelViewSet[ModelPrice]):
+    """Per-model prices used to compute review cost (KEY-05)."""
+
+    serializer_class = ModelPriceSerializer
+    permission_classes = [IsAdmin]
+    pagination_class = None
+    queryset = ModelPrice.objects.all()
+
+    def perform_create(self, serializer: Any) -> None:
+        price = serializer.save(updated_by=self.request.user, is_default=False)
+        record("pricing.created", request=self.request, target=price, **_price_fields(price))
+
+    def perform_update(self, serializer: Any) -> None:
+        before = _price_fields(serializer.instance)
+        price = serializer.save(updated_by=self.request.user, is_default=False)
+        if changes := diff(before, _price_fields(price)):
+            record("pricing.updated", request=self.request, target=price, changes=changes)
+
+    def perform_destroy(self, instance: ModelPrice) -> None:
+        record("pricing.deleted", request=self.request, target=instance, **_price_fields(instance))
+        instance.delete()
+
+    @extend_schema(request=None, responses={200: {"type": "object"}})
+    @action(detail=False, methods=["post"])
+    def defaults(self, request: Request) -> Response:
+        """Adds shipped default prices that are missing (never overwrites edited ones)."""
+        added = pricing.install_defaults()
+        return Response({"added": added, "prices_as_of": pricing.PRICES_AS_OF})
+
+    @extend_schema(request=None, responses={200: {"type": "object"}})
+    @action(detail=False, methods=["post"])
+    def recalculate(self, request: Request) -> Response:
+        """Fills in the cost of past LLM calls that had no price, using the current price table."""
+        from apps.reviews.models import LLMUsage
+
+        prices = list(ModelPrice.objects.all())
+        updated = 0
+        pairs = LLMUsage.objects.filter(cost_usd__isnull=True).values_list("provider", "model").distinct()
+        for provider, model in pairs:
+            price = pricing.best_match(prices, provider, model)
+            if price is None:
+                continue
+            rows = LLMUsage.objects.filter(cost_usd__isnull=True, provider=provider, model=model)
+            updated += rows.update(cost_usd=pricing.cost_expression(price))
+        remaining = LLMUsage.objects.filter(cost_usd__isnull=True).count()
+        record("pricing.recalculated", request=request, updated=updated)
+        return Response({"updated": updated, "unpriced_remaining": remaining})
+
+
+def _price_fields(price: ModelPrice) -> dict[str, str]:
+    return {
+        "provider": price.provider,
+        "model_prefix": price.model_prefix,
+        "input_usd_per_mtok": str(price.input_usd_per_mtok),
+        "output_usd_per_mtok": str(price.output_usd_per_mtok),
+    }

@@ -168,6 +168,7 @@ class ReviewRunSerializer(ReviewRunSummarySerializer):
             "credential_name",
             "summary",
             "input_tokens",
+            "cost_usd",
             "output_tokens",
             "chunk_count",
             "chunks_failed",

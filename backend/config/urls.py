@@ -20,6 +20,8 @@ router.register("webhook-deliveries", webhooks.WebhookDeliveryViewSet, basename=
 router.register("users", accounts.UserViewSet, basename="user")
 router.register("invites", accounts.InviteViewSet, basename="invite")
 router.register("audit-events", audit.AuditEventViewSet, basename="audit-event")
+router.register("auth/tokens", accounts.ApiTokenViewSet, basename="api-token")
+router.register("model-prices", credentials.ModelPriceViewSet, basename="model-price")
 
 api_v1: list[URLPattern | URLResolver] = [
     path("auth/csrf", accounts.CsrfView.as_view()),

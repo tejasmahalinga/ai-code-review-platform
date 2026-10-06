@@ -17,7 +17,8 @@ import {
   formatDate,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
-import type { LLMCredential, LLMProviderInfo } from "@/lib/types";
+import { BudgetBar } from "@/components/budget";
+import type { LLMCredential, LLMProviderInfo, ModelPrice } from "@/lib/types";
 
 const STATUS_TONE = { valid: "green", invalid: "red", revoked: "slate" } as const;
 
@@ -27,6 +28,7 @@ export default function KeysPage() {
   const providers = useQuery({ queryKey: ["llm-providers"], queryFn: () => api<LLMProviderInfo[]>("/llm-providers") });
   const [showForm, setShowForm] = useState(false);
   const [rotating, setRotating] = useState<number | null>(null);
+  const [budgeting, setBudgeting] = useState<number | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["llm-credentials"] });
   const validate = useMutation({
@@ -85,6 +87,7 @@ export default function KeysPage() {
                 <th className="px-4 py-2">Key</th>
                 <th className="px-4 py-2">Status</th>
                 <th className="px-4 py-2">Used by</th>
+                <th className="px-4 py-2">This month</th>
                 <th className="px-4 py-2">Last validated</th>
                 <th className="px-4 py-2" />
               </tr>
@@ -105,6 +108,14 @@ export default function KeysPage() {
                       {c.status_message && <span className="block max-w-xs text-xs text-red-700">{c.status_message}</span>}
                     </td>
                     <td className="px-4 py-2">{c.in_use_by} repo(s)</td>
+                    <td className="px-4 py-2">
+                      <BudgetBar budget={c.budget} />
+                      {c.status !== "revoked" && (
+                        <button type="button" className="text-xs text-sky-700 hover:underline" onClick={() => setBudgeting(budgeting === c.id ? null : c.id)}>
+                          {c.monthly_budget_usd ? "Change budget" : "Set budget"}
+                        </button>
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-slate-600">{formatDate(c.last_validated_at)}</td>
                     <td className="space-x-2 whitespace-nowrap px-4 py-2 text-right">
                       <Button variant="secondary" loading={validate.isPending && validate.variables === c.id} onClick={() => validate.mutate(c.id)}>
@@ -126,9 +137,23 @@ export default function KeysPage() {
                       </Button>
                     </td>
                   </tr>
+                  {budgeting === c.id && (
+                    <tr>
+                      <td colSpan={9} className="bg-slate-50 px-4 py-3">
+                        <BudgetForm
+                          credential={c}
+                          onDone={() => {
+                            setBudgeting(null);
+                            invalidate();
+                          }}
+                          onCancel={() => setBudgeting(null)}
+                        />
+                      </td>
+                    </tr>
+                  )}
                   {rotating === c.id && (
                     <tr>
-                      <td colSpan={8} className="bg-slate-50 px-4 py-3">
+                      <td colSpan={9} className="bg-slate-50 px-4 py-3">
                         <RotateKeyForm
                           credential={c}
                           onDone={() => {
@@ -146,6 +171,9 @@ export default function KeysPage() {
           </table>
         </div>
       )}
+      <div className="mt-8" id="prices">
+        <ModelPrices providerLabel={providerLabel} />
+      </div>
     </>
   );
 }
@@ -298,3 +326,209 @@ function RotateKeyForm({ credential, onDone, onCancel }: { credential: LLMCreden
     </form>
   );
 }
+
+function BudgetForm({ credential, onDone, onCancel }: { credential: LLMCredential; onDone: () => void; onCancel: () => void }) {
+  const [value, setValue] = useState(credential.monthly_budget_usd ?? "");
+  const save = useMutation({
+    mutationFn: (budget: string | null) =>
+      api<LLMCredential>(`/llm-credentials/${credential.id}`, { method: "PATCH", body: { monthly_budget_usd: budget } }),
+    onSuccess: onDone,
+  });
+  const fieldError = save.error instanceof ApiError ? save.error.fieldErrors().monthly_budget_usd : undefined;
+  return (
+    <form
+      className="flex flex-wrap items-end gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate(value.trim() ? value.trim() : null);
+      }}
+    >
+      <div className="w-64">
+        <Field
+          label={`Monthly budget for "${credential.name}" (USD)`}
+          hint="Admins are alerted at 80%. At 100% automatic reviews pause until the next month."
+          error={fieldError ?? (save.error && !fieldError ? errorMessage(save.error) : undefined)}
+        >
+          <Input type="number" min="0.01" step="0.01" value={value} placeholder="No budget" onChange={(e) => setValue(e.target.value)} />
+        </Field>
+      </div>
+      <Button type="submit" loading={save.isPending}>
+        Save
+      </Button>
+      {credential.monthly_budget_usd && (
+        <Button type="button" variant="secondary" onClick={() => save.mutate(null)}>
+          Remove budget
+        </Button>
+      )}
+      <Button type="button" variant="ghost" onClick={onCancel}>
+        Cancel
+      </Button>
+    </form>
+  );
+}
+
+const EMPTY_PRICE = { provider: "", model_prefix: "", input_usd_per_mtok: "", output_usd_per_mtok: "" };
+
+function ModelPrices({ providerLabel }: { providerLabel: (id: string) => string }) {
+  const queryClient = useQueryClient();
+  const prices = useQuery({ queryKey: ["model-prices"], queryFn: () => api<ModelPrice[]>("/model-prices") });
+  const providers = useQuery({ queryKey: ["llm-providers"], queryFn: () => api<LLMProviderInfo[]>("/llm-providers") });
+  const [draft, setDraft] = useState(EMPTY_PRICE);
+  const [editing, setEditing] = useState<ModelPrice | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["model-prices"] });
+  const save = useMutation({
+    mutationFn: (body: typeof EMPTY_PRICE & { id?: number }) =>
+      body.id
+        ? api<ModelPrice>(`/model-prices/${body.id}`, { method: "PATCH", body })
+        : api<ModelPrice>("/model-prices", { method: "POST", body }),
+    onSuccess: () => {
+      setDraft(EMPTY_PRICE);
+      setEditing(null);
+      refresh();
+    },
+  });
+  const remove = useMutation({ mutationFn: (id: number) => api(`/model-prices/${id}`, { method: "DELETE" }), onSuccess: refresh });
+  const recalc = useMutation({
+    mutationFn: () => api<{ updated: number; unpriced_remaining: number }>("/model-prices/recalculate", { method: "POST" }),
+    onSuccess: (r) => {
+      setMessage(`Filled in the cost of ${r.updated} past LLM calls. ${r.unpriced_remaining} still have no price.`);
+      queryClient.invalidateQueries({ queryKey: ["llm-credentials"] });
+    },
+  });
+  const restore = useMutation({
+    mutationFn: () => api<{ added: number }>("/model-prices/defaults", { method: "POST" }),
+    onSuccess: (r) => {
+      setMessage(`Restored ${r.added} missing default prices.`);
+      refresh();
+    },
+  });
+  const errors = save.error instanceof ApiError ? save.error.fieldErrors() : {};
+
+  const form = (value: typeof EMPTY_PRICE, set: (v: typeof EMPTY_PRICE) => void, id?: number) => (
+    <form
+      className="grid items-end gap-2 md:grid-cols-[1fr_1.5fr_1fr_1fr_auto]"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate({ ...value, id });
+      }}
+    >
+      <Field label="Provider" error={errors.provider}>
+        <Select value={value.provider} onChange={(e) => set({ ...value, provider: e.target.value })}>
+          <option value="">Any provider</option>
+          {providers.data?.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Model name starts with" error={errors.model_prefix}>
+        <Input value={value.model_prefix} placeholder="e.g. gpt-4o-mini (empty = all models)" onChange={(e) => set({ ...value, model_prefix: e.target.value })} />
+      </Field>
+      <Field label="Input $ / 1M tokens" error={errors.input_usd_per_mtok}>
+        <Input type="number" min="0" step="0.0001" required value={value.input_usd_per_mtok} onChange={(e) => set({ ...value, input_usd_per_mtok: e.target.value })} />
+      </Field>
+      <Field label="Output $ / 1M tokens" error={errors.output_usd_per_mtok}>
+        <Input type="number" min="0" step="0.0001" required value={value.output_usd_per_mtok} onChange={(e) => set({ ...value, output_usd_per_mtok: e.target.value })} />
+      </Field>
+      <div className="flex gap-2">
+        <Button type="submit" loading={save.isPending}>
+          {id ? "Save" : "Add"}
+        </Button>
+        {id && (
+          <Button type="button" variant="ghost" onClick={() => setEditing(null)}>
+            Cancel
+          </Button>
+        )}
+      </div>
+    </form>
+  );
+
+  return (
+    <Card
+      title="Model prices"
+      actions={
+        <>
+          <Button variant="secondary" loading={restore.isPending} onClick={() => restore.mutate()}>
+            Restore defaults
+          </Button>
+          <Button variant="secondary" loading={recalc.isPending} onClick={() => recalc.mutate()}>
+            Recalculate unpriced usage
+          </Button>
+        </>
+      }
+    >
+      <p className="mb-3 text-sm text-slate-600">
+        Used to compute review cost and enforce budgets. Defaults are list prices for hosted models; providers change
+        them, so check them against your contract. Price self-hosted models at 0. The longest matching prefix wins.
+      </p>
+      {message && (
+        <div className="mb-3">
+          <Alert kind="success">{message}</Alert>
+        </div>
+      )}
+      {(save.error && Object.keys(errors).length === 0) || remove.error ? (
+        <div className="mb-3">
+          <Alert>{errorMessage(save.error ?? remove.error)}</Alert>
+        </div>
+      ) : null}
+      {prices.isLoading ? (
+        <Spinner />
+      ) : (
+        <table className="mb-4 min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="py-1 pr-3">Provider</th>
+              <th className="py-1 pr-3">Model prefix</th>
+              <th className="py-1 pr-3 text-right">Input / 1M</th>
+              <th className="py-1 pr-3 text-right">Output / 1M</th>
+              <th className="py-1" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {prices.data?.map((p) =>
+              editing?.id === p.id ? (
+                <tr key={p.id}>
+                  <td colSpan={5} className="py-2">
+                    {form(
+                      { provider: editing.provider, model_prefix: editing.model_prefix, input_usd_per_mtok: editing.input_usd_per_mtok, output_usd_per_mtok: editing.output_usd_per_mtok },
+                      (v) => setEditing({ ...editing, ...v }),
+                      p.id,
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                <tr key={p.id}>
+                  <td className="py-1 pr-3">{p.provider ? providerLabel(p.provider) : <span className="text-slate-500">any</span>}</td>
+                  <td className="py-1 pr-3 font-mono text-xs">
+                    {p.model_prefix || <span className="text-slate-500">all models</span>} {!p.is_default && <Badge tone="sky">custom</Badge>}
+                  </td>
+                  <td className="py-1 pr-3 text-right">${Number(p.input_usd_per_mtok).toFixed(2)}</td>
+                  <td className="py-1 pr-3 text-right">${Number(p.output_usd_per_mtok).toFixed(2)}</td>
+                  <td className="space-x-2 whitespace-nowrap py-1 text-right">
+                    <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => setEditing(p)}>
+                      Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="px-2 py-1 text-xs"
+                      onClick={() => {
+                        if (confirm(`Delete the price for ${p.model_prefix || "all models"}? Future calls to matching models will have no cost.`)) remove.mutate(p.id);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </td>
+                </tr>
+              ),
+            )}
+          </tbody>
+        </table>
+      )}
+      <h3 className="mb-2 text-sm font-medium">Add a price</h3>
+      {form(draft, setDraft)}
+    </Card>
+  );
+}
+

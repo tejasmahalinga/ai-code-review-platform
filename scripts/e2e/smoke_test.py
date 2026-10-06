@@ -132,6 +132,27 @@ def team_checks() -> None:
     expect(expected <= seen, f"audit log records team and key events ({sorted(seen)})")
 
 
+def cost_checks() -> None:
+    """KEY-05 / ADM-05 / ADM-06: priced usage, budgets, CSV export with a personal API token."""
+    status, usage = call("GET", "/api/v1/usage?group_by=model")
+    expect(status == 200 and usage["totals"]["unpriced"] == 0, "every LLM call has a price (demo model is free)")
+    status, keys = call("GET", "/api/v1/llm-credentials")
+    key = keys[0]
+    status, key = call("PATCH", f"/api/v1/llm-credentials/{key['id']}", {"monthly_budget_usd": "25.00"})
+    expect(status == 200 and key["budget"]["state"] == "ok", f"monthly budget set ({status} {key.get('budget')})")
+
+    status, created = call("POST", "/api/v1/auth/tokens", {"name": "e2e export", "expires_in_days": 7})
+    expect(status == 201 and created["token"].startswith("rbt_"), "API token created")
+    request = urllib.request.Request(
+        f"{BASE}/api/v1/usage?group_by=day,model&export=csv",
+        headers={"Authorization": f"Bearer {created['token']}"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+        body = response.read().decode()
+        expect(response.headers["Content-Type"].startswith("text/csv"), "usage CSV export over an API token")
+    expect(body.splitlines()[0].startswith("day,model,reviews,requests"), "CSV has the expected columns")
+
+
 def private_key() -> str:
     return subprocess.run(
         ["openssl", "genrsa", "2048"], check=True, capture_output=True, text=True
@@ -279,6 +300,7 @@ def main() -> None:
     expect(usage["totals"]["requests"] >= 2, "usage endpoint aggregates calls")
 
     team_checks()
+    cost_checks()
     print("\nEnd-to-end smoke test passed.")
 
 

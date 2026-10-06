@@ -23,6 +23,7 @@ SECRET_VALUE_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),
     re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"rbt_[A-Za-z0-9_\-]{16,}"),
     re.compile(r"xox[abpr]-[A-Za-z0-9\-]{10,}"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]{16,}"),

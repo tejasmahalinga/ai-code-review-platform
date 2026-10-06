@@ -108,6 +108,8 @@ class ReviewRun(models.Model):
     )
     input_tokens = models.PositiveIntegerField(default=0)
     output_tokens = models.PositiveIntegerField(default=0)
+    # Sum of the LLM calls' cost; NULL when any call used a model without a price.
+    cost_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
     provider_review_id = models.CharField(max_length=64, blank=True)
     provider_review_url = models.URLField(max_length=500, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)

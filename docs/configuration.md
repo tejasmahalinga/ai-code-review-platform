@@ -175,7 +175,7 @@ automatically.
 | Re-run reviews; accept, dismiss and vote on findings | ✓ | ✓ | |
 | Edit review rules: profile, thresholds, rules, instructions, ignored files, test suggestions | ✓ | ✓ | |
 | Enable repositories; edit keys, triggers, checks, branch filters, cost limits | ✓ | | |
-| LLM keys, integrations, team, audit log, usage | ✓ | | |
+| LLM keys, budgets, model prices, integrations, team, audit log, usage | ✓ | | |
 
 The API enforces every rule; the dashboard only hides controls you cannot use. At least one active admin always
 remains. A deactivated user's sessions stop working right away. Developers who only open pull requests need no
@@ -203,3 +203,53 @@ Admins see an append-only log under **Audit log** (also `GET /api/v1/audit-event
 
 Event metadata goes through the same secret redaction as the logs. The API has no endpoint to edit or delete
 events, and a database trigger rejects updates.
+
+## Cost and budgets
+
+### Prices
+
+Every LLM call is priced from the **model price table** (**LLM keys → Model prices**, or `/api/v1/model-prices`).
+
+- Each row is a provider (or any provider) plus a model-name prefix, with USD prices per million input and output
+  tokens. The most specific row wins: a provider-specific row beats a generic one, then the longest prefix wins.
+- Reviewbot ships list prices for common OpenAI and Anthropic models (see `PRICES_AS_OF` in
+  `backend/apps/credentials/pricing.py`). Providers change prices and contracts differ, so check them. Edited rows
+  are never overwritten, and **Restore defaults** only adds rows that are missing.
+- Calls to a model without a price get an unknown cost. The usage page reports them as "unpriced", and they don't
+  count toward budgets. Price self-hosted models (Ollama, vLLM) at 0. After adding prices, **Recalculate unpriced
+  usage** fills in past calls.
+
+### Monthly budgets
+
+Set a budget per LLM key on the LLM keys page. Spending is counted per UTC calendar month.
+
+| Spend | What happens |
+|---|---|
+| 80% | One alert per month: an audit event `budget.threshold_reached`, and an email to admins if SMTP is configured. |
+| 100% | Alert as above. Automatic reviews (new PRs, pushes, `/reviewbot review`) using this key are **skipped**, with a short PR comment (no comment for pushes) and a skipped check run. Reviewers cannot start manual reviews; admins still can. |
+
+A single review is already capped by the repository's cost limits, so it can overshoot the budget by at most one
+review.
+
+### Usage and export
+
+**Usage** (admins) shows cost, reviews, tokens and requests for the last 7, 30 or 90 days, budget bars, a daily cost
+chart, and breakdowns by repository and model. **Download CSV** exports day × repository × key × model rows. The
+same data is at `GET /api/v1/usage?group_by=day,repository,credential,model&from=…&to=…`, with `&export=csv` for
+CSV.
+
+## API tokens
+
+Every user can create personal API tokens under **Account → API tokens**. Send them as
+`Authorization: Bearer rbt_…`.
+
+- A token acts with its owner's role, and stops working when the owner is deactivated or the token is revoked or
+  expires (7, 30, 90 or 365 days, or never).
+- Only a SHA-256 hash is stored, the token is shown once, and log output redacts `rbt_…` values.
+- Tokens cannot create tokens or change the password; those need a dashboard session. Token requests need no
+  CSRF header.
+
+```bash
+curl -H "Authorization: Bearer $REVIEWBOT_TOKEN" \
+  "https://reviewbot.example.com/api/v1/usage?group_by=day,repository&export=csv" -o usage.csv
+```

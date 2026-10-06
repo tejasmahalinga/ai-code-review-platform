@@ -57,3 +57,56 @@ class LLMCredential(models.Model):
         self.revoked_at = timezone.now()
         self.encrypted_secret = ""
         self.save(update_fields=["status", "revoked_at", "encrypted_secret"])
+
+
+class ModelPrice(models.Model):
+    """USD price per million tokens for models whose name starts with ``model_prefix`` (KEY-05).
+
+    An empty ``provider`` applies to every provider; an empty prefix to every model of the provider. The most
+    specific row wins: provider-specific before generic, then the longest prefix.
+    """
+
+    provider = models.CharField(max_length=32, blank=True)
+    model_prefix = models.CharField(max_length=200, blank=True)
+    input_usd_per_mtok = models.DecimalField(max_digits=10, decimal_places=4)
+    output_usd_per_mtok = models.DecimalField(max_digits=10, decimal_places=4)
+    is_default = models.BooleanField(
+        default=False, help_text="Shipped with Reviewbot rather than added by an admin."
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["provider", "model_prefix"]
+        constraints = [
+            models.UniqueConstraint(fields=["provider", "model_prefix"], name="uniq_model_price"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.provider or '*'}:{self.model_prefix or '*'}"
+
+    @property
+    def audit_label(self) -> str:
+        return f"{self.provider or 'any provider'} / {self.model_prefix or 'any model'}"
+
+
+class BudgetAlert(models.Model):
+    """Records that a monthly budget threshold was reached, so each alert fires once per month."""
+
+    credential = models.ForeignKey(LLMCredential, on_delete=models.CASCADE, related_name="budget_alerts")
+    month = models.DateField(help_text="First day of the month (UTC).")
+    threshold = models.PositiveSmallIntegerField()
+    spent_usd = models.DecimalField(max_digits=12, decimal_places=6)
+    budget_usd = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["credential", "month", "threshold"], name="uniq_budget_alert"),
+        ]
+
+    def __str__(self) -> str:
+        return f"budget:{self.credential_id}:{self.month}:{self.threshold}"

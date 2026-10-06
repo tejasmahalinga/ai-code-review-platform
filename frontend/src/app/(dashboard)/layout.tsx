@@ -12,6 +12,7 @@ const NAV = [
   { href: "/pull-requests", label: "Pull requests", admin: false },
   { href: "/repositories", label: "Repositories", admin: false },
   { href: "/settings/keys", label: "LLM keys", admin: true },
+  { href: "/settings/usage", label: "Usage", admin: true },
   { href: "/settings/integrations", label: "Integrations", admin: true },
   { href: "/settings/team", label: "Team", admin: true },
   { href: "/settings/audit", label: "Audit log", admin: true },

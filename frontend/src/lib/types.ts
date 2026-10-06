@@ -109,6 +109,70 @@ export interface LLMCredential {
   created_at: string;
   revoked_at: string | null;
   in_use_by: number;
+  monthly_budget_usd: string | null;
+  budget: BudgetStatus;
+}
+
+export interface BudgetStatus {
+  budget_usd: string | null;
+  spent_usd: string;
+  percent: number | null;
+  state: "none" | "ok" | "warning" | "exceeded";
+  unpriced_requests: number;
+}
+
+export interface ModelPrice {
+  id: number;
+  provider: string;
+  model_prefix: string;
+  input_usd_per_mtok: string;
+  output_usd_per_mtok: string;
+  is_default: boolean;
+  updated_at: string;
+}
+
+export interface UsageRow {
+  day?: string;
+  repository_id?: number | null;
+  repository__full_name?: string | null;
+  credential_id?: number | null;
+  credential__name?: string | null;
+  model?: string;
+  requests: number;
+  errors: number;
+  reviews: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: string | number | null;
+  unpriced: number;
+}
+
+export interface UsageReport {
+  from: string;
+  to: string;
+  group_by: string[];
+  rows: UsageRow[];
+  totals: Omit<UsageRow, "day" | "repository_id" | "repository__full_name" | "credential_id" | "credential__name" | "model">;
+  prices_as_of: string;
+}
+
+export interface ApiToken {
+  id: number;
+  name: string;
+  hint: string;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  active: boolean;
+}
+
+export function formatUsd(value: string | number | null | undefined, digits = 2): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return "—";
+  if (n > 0 && n < 0.01 && digits === 2) return "< $0.01";
+  return `$${n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
 export interface Installation {
@@ -257,6 +321,7 @@ export interface ReviewRun extends ReviewRunSummary {
   credential_name: string | null;
   summary: string;
   input_tokens: number;
+  cost_usd: string | null;
   output_tokens: number;
   chunk_count: number;
   chunks_failed: number;

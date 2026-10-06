@@ -136,3 +136,42 @@ class Invite(models.Model):
         if self.expires_at <= timezone.now():
             return "expired"
         return "pending"
+
+
+API_TOKEN_PREFIX = "rbt_"
+
+
+class ApiToken(models.Model):
+    """Personal API token (ADM-06). Acts as its owner with the owner's role; only a SHA-256 is stored."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="api_tokens")
+    name = models.CharField(max_length=100)
+    token_hash = models.CharField(max_length=64, unique=True)
+    hint = models.CharField(max_length=12, help_text="First characters, to recognise the token.")
+    created_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-id"]
+
+    def __str__(self) -> str:
+        return f"token:{self.hint}"
+
+    @property
+    def audit_label(self) -> str:
+        return f"{self.name} ({self.hint}…)"
+
+    @property
+    def is_active(self) -> bool:
+        return self.revoked_at is None and (self.expires_at is None or self.expires_at > timezone.now())
+
+    @classmethod
+    def issue(cls, *, user: User, name: str, expires_in_days: int | None) -> tuple[ApiToken, str]:
+        token = API_TOKEN_PREFIX + secrets.token_urlsafe(32)
+        expires_at = timezone.now() + timedelta(days=expires_in_days) if expires_in_days else None
+        instance = cls.objects.create(
+            user=user, name=name, token_hash=hash_token(token), hint=token[:10], expires_at=expires_at
+        )
+        return instance, token

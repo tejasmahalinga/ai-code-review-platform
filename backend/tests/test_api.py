@@ -307,7 +307,8 @@ def test_usage_endpoint(api, fake_credential):
             status="ok",
         )
     data = api.get("/api/v1/usage", {"group_by": "credential,model"}).json()
-    assert data["totals"] == {"input_tokens": 350, "output_tokens": 20, "requests": 2}
+    assert data["totals"] | {"input_tokens": 350, "output_tokens": 20, "requests": 2} == data["totals"]
+    assert data["totals"]["unpriced"] == 2
     assert data["rows"][0]["credential__name"] == "Demo"
     assert api.get("/api/v1/usage", {"group_by": "bogus"}).status_code == 400
 

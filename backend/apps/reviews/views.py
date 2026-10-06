@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import csv
+import io
 from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import TruncDay
+from django.http import HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
@@ -20,6 +23,7 @@ from apps.accounts.models import User
 from apps.accounts.permissions import IsAdmin, IsReviewerOrReadOnly
 from apps.audit.services import record
 from apps.core.exceptions import Conflict
+from apps.credentials import budgets, pricing
 from apps.repositories.models import SEVERITY_RANK
 from apps.reviews.engine.profiles import PROFILES
 from apps.reviews.models import Finding, FindingFeedback, LLMUsage, PullRequest, ReviewRun
@@ -145,6 +149,11 @@ class PullRequestViewSet(
         settings = getattr(repository, "settings", None)
         if not (settings and settings.credential and settings.credential.is_usable):
             raise ValidationError("This repository has no valid LLM key configured.")
+        if budgets.is_exceeded(settings.credential) and not cast(User, request.user).is_admin:
+            raise ValidationError(
+                "This repository's LLM key has reached its monthly budget. "
+                "Ask an admin to raise it or to run the review."
+            )
         try:
             run = request_manual_review(pr, request.user)
         except ActiveRunExists as exc:
@@ -312,12 +321,15 @@ class ReviewProfilesView(APIView):
 
 
 class UsageView(APIView):
-    """Token usage aggregated by day, repository, credential, or model (raw data for KEY-03/ADM-05)."""
+    """Token usage and cost aggregated by day, repository, credential, or model (ADM-05).
+
+    ``?export=csv`` returns the rows as a CSV file instead of JSON.
+    """
 
     permission_classes = [IsAdmin]
     GROUPS = {"day", "repository", "credential", "model"}
 
-    def get(self, request: Request) -> Response:
+    def get(self, request: Request) -> Response | HttpResponse:
         now = timezone.now()
         start = _parse_date(request.query_params.get("from"), now - timedelta(days=30))
         end = _parse_date(request.query_params.get("to"), now)
@@ -342,11 +354,23 @@ class UsageView(APIView):
                 errors=Count("id", filter=Q(status=LLMUsage.Status.ERROR)),
                 input_tokens=Sum("input_tokens"),
                 output_tokens=Sum("output_tokens"),
+                # Before cost_usd: the filter must see the column, not the aggregate of the same name.
+                unpriced=Count("id", filter=Q(cost_usd__isnull=True)),
+                cost_usd=Sum("cost_usd"),
+                reviews=Count("review_run", distinct=True),
             )
             .order_by(*fields)
         )
+        if request.query_params.get("export") == "csv":
+            return _usage_csv(list(rows), fields, start, end)
         totals = qs.aggregate(
-            input_tokens=Sum("input_tokens"), output_tokens=Sum("output_tokens"), requests=Count("id")
+            input_tokens=Sum("input_tokens"),
+            output_tokens=Sum("output_tokens"),
+            requests=Count("id"),
+            errors=Count("id", filter=Q(status=LLMUsage.Status.ERROR)),
+            unpriced=Count("id", filter=Q(cost_usd__isnull=True)),
+            cost_usd=Sum("cost_usd"),
+            reviews=Count("review_run", distinct=True),
         )
         return Response(
             {
@@ -355,5 +379,38 @@ class UsageView(APIView):
                 "group_by": group_by,
                 "rows": list(rows),
                 "totals": {k: v or 0 for k, v in totals.items()},
+                "prices_as_of": pricing.PRICES_AS_OF,
             }
         )
+
+
+CSV_COLUMNS = {
+    "day": "day",
+    "repository__full_name": "repository",
+    "credential__name": "llm_key",
+    "model": "model",
+}
+
+
+def _usage_csv(rows: list[dict[str, Any]], fields: list[str], start: datetime, end: datetime) -> HttpResponse:
+    columns = [f for f in fields if f in CSV_COLUMNS]
+    metrics = ["reviews", "requests", "errors", "input_tokens", "output_tokens", "cost_usd", "unpriced"]
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([CSV_COLUMNS[c] for c in columns] + metrics)
+    for row in rows:
+        values = []
+        for column in columns:
+            value = row.get(column)
+            values.append(value.date().isoformat() if column == "day" and value else _csv_safe(value))
+        writer.writerow(values + [row.get(m) if row.get(m) is not None else "" for m in metrics])
+    response = HttpResponse(buffer.getvalue(), content_type="text/csv; charset=utf-8")
+    filename = f"reviewbot-usage-{start:%Y%m%d}-{end:%Y%m%d}.csv"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+def _csv_safe(value: Any) -> str:
+    """Neutralizes spreadsheet formulas in user-controlled text (CSV injection)."""
+    text = "" if value is None else str(value)
+    return f"'{text}" if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
