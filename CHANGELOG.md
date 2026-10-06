@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Single sign-on (ADM-07):** sign in with any OpenID Connect provider (Okta, Microsoft Entra ID, Keycloak,
+  Google) and with GitLab.
+  - Uses PKCE, `state`, and `nonce`. ID tokens are verified against the provider's JWKS (asymmetric algorithms
+    only).
+  - Identities are matched by subject, an invite, or a verified email.
+  - Optional group-to-role mapping provisions accounts, syncs roles at each sign-in, and denies people outside
+    the allowed groups. It never demotes the last admin.
+  - `REVIEWBOT_PASSWORD_LOGIN=admins|none` enforces SSO, keeping an admin break-glass option.
+  - New **Account → Single sign-on** card for linking and unlinking. See `docs/sso.md`.
+
 ## [0.4.0] — 2026-10-06
 
 ### Added

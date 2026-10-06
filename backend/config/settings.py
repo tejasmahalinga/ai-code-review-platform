@@ -241,6 +241,25 @@ ALLOW_SIGNUP = env_bool("REVIEWBOT_ALLOW_SIGNUP", False)
 SIGNUP_EMAIL_DOMAINS = [d.lower().lstrip("@") for d in env_list("REVIEWBOT_SIGNUP_EMAIL_DOMAINS", "")]
 SIGNUP_ROLE = env("REVIEWBOT_SIGNUP_ROLE", "viewer") or "viewer"
 
+# --- Single sign-on (ADM-07): one generic OpenID Connect provider plus "Sign in with GitLab" ----
+OIDC_ISSUER = env("REVIEWBOT_OIDC_ISSUER", "") or ""
+OIDC_CLIENT_ID = env("REVIEWBOT_OIDC_CLIENT_ID", "") or ""
+OIDC_CLIENT_SECRET = env("REVIEWBOT_OIDC_CLIENT_SECRET", "") or ""
+OIDC_NAME = env("REVIEWBOT_OIDC_NAME", "SSO") or "SSO"
+OIDC_SCOPES = env("REVIEWBOT_OIDC_SCOPES", "openid email profile") or "openid email profile"
+OIDC_GROUPS_CLAIM = env("REVIEWBOT_OIDC_GROUPS_CLAIM", "groups") or "groups"
+# e.g. "admin=reviewbot-admins;reviewer=engineering;viewer=*". Empty: invites and email matches only.
+OIDC_ROLE_MAPPING = env("REVIEWBOT_OIDC_ROLE_MAPPING", "") or ""
+OIDC_SYNC_ROLES = env_bool("REVIEWBOT_OIDC_SYNC_ROLES", True)
+# Some IdPs (Microsoft Entra ID) omit email_verified; trust their email claim only if you opt in.
+OIDC_TRUST_EMAIL = env_bool("REVIEWBOT_OIDC_TRUST_EMAIL", False)
+GITLAB_OAUTH_CLIENT_ID = env("REVIEWBOT_GITLAB_OAUTH_CLIENT_ID", "") or ""
+GITLAB_OAUTH_CLIENT_SECRET = env("REVIEWBOT_GITLAB_OAUTH_CLIENT_SECRET", "") or ""
+GITLAB_OAUTH_URL = env("REVIEWBOT_GITLAB_OAUTH_URL", "") or ""  # defaults to the connected GitLab instance
+GITLAB_ROLE_MAPPING = env("REVIEWBOT_GITLAB_ROLE_MAPPING", "") or ""
+# Password sign-in: "all", "admins" (break-glass when SSO is enforced), or "none".
+PASSWORD_LOGIN = (env("REVIEWBOT_PASSWORD_LOGIN", "all") or "all").lower()
+
 # --- Email (optional; used to send invites) -----------------------------------------------------
 EMAIL_HOST = env("REVIEWBOT_EMAIL_HOST", "") or ""
 EMAIL_PORT = env_int("REVIEWBOT_EMAIL_PORT", 587)

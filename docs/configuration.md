@@ -183,6 +183,9 @@ The API enforces every rule; the dashboard only hides controls you cannot use. A
 remains. A deactivated user's sessions stop working right away. Developers who only open pull requests need no
 account: reviews, checks and `/reviewbot` commands all happen on GitHub.
 
+Single sign-on (Okta, Entra ID, Keycloak, Google, GitLab) and enforcing it with `REVIEWBOT_PASSWORD_LOGIN` are
+covered in [Single sign-on](sso.md).
+
 ### How people sign in
 
 1. **Invite** (recommended): an admin enters an email and a role under **Team**. The person opens the single-use

@@ -56,36 +56,42 @@ export default function InvitePage() {
       <p className="mb-4 text-sm text-slate-600">
         You were invited as <strong>{role?.label}</strong>: {role?.description}
       </p>
-      {info.github_login && (
-        <>
-          <a className={buttonClass("secondary", "w-full")} href={`/api/v1/auth/github/start?invite=${encodeURIComponent(token)}`}>
-            Continue with GitHub
-          </a>
-          <p className="my-4 text-center text-xs uppercase tracking-wide text-slate-400">or set a password</p>
-        </>
+      {info.login_providers.length > 0 && (
+        <div className="space-y-2">
+          {info.login_providers.map((p) => (
+            <a key={p.id} className={buttonClass("secondary", "w-full")} href={`${p.start_url}?invite=${encodeURIComponent(token)}`}>
+              Continue with {p.name}
+            </a>
+          ))}
+        </div>
       )}
-      <form className="space-y-4" onSubmit={onSubmit}>
-        {error && !fieldErrors.password && <Alert>{errorMessage(error)}</Alert>}
-        <Field label="Email">
-          <Input value={info.email} disabled />
-        </Field>
-        <Field label="Name">
-          <Input autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="Password" hint="At least 10 characters." error={fieldErrors.password}>
-          <Input
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={10}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </Field>
-        <Button type="submit" className="w-full" loading={submitting}>
-          Create account
-        </Button>
-      </form>
+      {info.login_providers.length > 0 && info.password_login === "all" && (
+        <p className="my-4 text-center text-xs uppercase tracking-wide text-slate-400">or set a password</p>
+      )}
+      {info.password_login === "all" && (
+        <form className="space-y-4" onSubmit={onSubmit}>
+          {error && !fieldErrors.password && <Alert>{errorMessage(error)}</Alert>}
+          <Field label="Email">
+            <Input value={info.email} disabled />
+          </Field>
+          <Field label="Name">
+            <Input autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="Password" hint="At least 10 characters." error={fieldErrors.password}>
+            <Input
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={10}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </Field>
+          <Button type="submit" className="w-full" loading={submitting}>
+            Create account
+          </Button>
+        </form>
+      )}
     </Card>
   );
 }

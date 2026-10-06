@@ -9,7 +9,12 @@ pytestmark = pytest.mark.django_db
 
 
 def test_setup_status_reports_needs_setup(anon):
-    assert anon.get("/api/v1/setup/status").json() == {"needs_setup": True, "github_login": False}
+    assert anon.get("/api/v1/setup/status").json() == {
+        "needs_setup": True,
+        "github_login": False,
+        "login_providers": [],
+        "password_login": "all",
+    }
 
 
 def test_setup_creates_first_admin_and_logs_in(anon):

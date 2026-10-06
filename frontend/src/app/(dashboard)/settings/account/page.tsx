@@ -6,8 +6,14 @@ import { Suspense, useState } from "react";
 import { Alert, Badge, Button, Card, Field, Input, PageHeader, Select, Spinner, buttonClass, errorMessage, formatDate } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import { useMe } from "@/lib/hooks";
-import type { ApiToken, User } from "@/lib/types";
+import type { ApiToken, ExternalIdentity, SetupStatus, User } from "@/lib/types";
 import { ROLES } from "@/lib/types";
+
+const SSO_MESSAGES: Record<string, { kind: "success" | "error"; text: string }> = {
+  linked: { kind: "success", text: "Single sign-on is linked. You can now sign in with it." },
+  in_use: { kind: "error", text: "That identity is already linked to another Reviewbot user." },
+  already_linked: { kind: "error", text: "You already have an identity linked at that provider. Unlink it first." },
+};
 
 const GITHUB_MESSAGES: Record<string, { kind: "success" | "error"; text: string }> = {
   linked: { kind: "success", text: "Your GitHub account is linked. You can now sign in with GitHub." },
@@ -26,7 +32,7 @@ function Account() {
   const me = useMe();
   const params = useSearchParams();
   if (!me.data) return <Spinner />;
-  const notice = GITHUB_MESSAGES[params.get("github") ?? ""];
+  const notice = GITHUB_MESSAGES[params.get("github") ?? ""] ?? SSO_MESSAGES[params.get("sso") ?? ""];
   return (
     <>
       <PageHeader title="Your account" description={`${me.data.email} · ${ROLES.find((r) => r.id === me.data!.role)?.label}`} />
@@ -34,6 +40,7 @@ function Account() {
         {notice && <Alert kind={notice.kind}>{notice.text}</Alert>}
         <ProfileCard user={me.data} />
         <GitHubCard user={me.data} />
+        <SsoCard />
         <PasswordCard user={me.data} />
         <TokensCard />
       </div>
@@ -76,7 +83,7 @@ function GitHubCard({ user }: { user: User }) {
   const queryClient = useQueryClient();
   const status = useQuery({
     queryKey: ["setup-status"],
-    queryFn: () => api<{ needs_setup: boolean; github_login: boolean }>("/setup/status"),
+    queryFn: () => api<SetupStatus>("/setup/status"),
   });
   const unlink = useMutation({
     mutationFn: () => api<User>("/auth/me/github", { method: "DELETE" }),
@@ -227,6 +234,46 @@ function TokensCard() {
           ))}
         </ul>
       )}
+    </Card>
+  );
+}
+
+function SsoCard() {
+  const queryClient = useQueryClient();
+  const status = useQuery({ queryKey: ["setup-status"], queryFn: () => api<SetupStatus>("/setup/status") });
+  const identities = useQuery({ queryKey: ["identities"], queryFn: () => api<ExternalIdentity[]>("/auth/me/identities") });
+  const unlink = useMutation({
+    mutationFn: (id: number) => api(`/auth/me/identities/${id}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["identities"] }),
+  });
+  const providers = (status.data?.login_providers ?? []).filter((p) => p.id !== "github");
+  const linked = identities.data ?? [];
+  if (providers.length === 0 && linked.length === 0) return null;
+  return (
+    <Card title="Single sign-on">
+      <ul className="divide-y divide-slate-100 text-sm">
+        {providers.map((p) => {
+          const identity = linked.find((i) => i.provider === p.id);
+          return (
+            <li key={p.id} className="flex flex-wrap items-center gap-3 py-2">
+              <span className="font-medium">{p.name}</span>
+              {identity ? (
+                <>
+                  <Badge tone="violet">{identity.username || identity.email}</Badge>
+                  <Button variant="ghost" className="ml-auto" loading={unlink.isPending} onClick={() => unlink.mutate(identity.id)}>
+                    Unlink
+                  </Button>
+                </>
+              ) : (
+                <a className={buttonClass("secondary", "ml-auto")} href={`${p.start_url}?link=1`}>
+                  Link {p.name}
+                </a>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {unlink.error && <p className="mt-2 text-sm text-red-700">{errorMessage(unlink.error)}</p>}
     </Card>
   );
 }

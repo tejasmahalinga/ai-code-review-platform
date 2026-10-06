@@ -175,3 +175,25 @@ class ApiToken(models.Model):
             user=user, name=name, token_hash=hash_token(token), hint=token[:10], expires_at=expires_at
         )
         return instance, token
+
+
+class ExternalIdentity(models.Model):
+    """A sign-in identity at an OpenID Connect provider (ADM-07), e.g. ("sso", <Okta sub>)."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="identities")
+    provider = models.CharField(max_length=32)
+    subject = models.CharField(max_length=255)
+    username = models.CharField(max_length=255, blank=True)
+    email = models.EmailField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    last_login_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["provider", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["provider", "subject"], name="uniq_external_identity"),
+            models.UniqueConstraint(fields=["user", "provider"], name="uniq_identity_per_provider"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.provider}:{self.subject}"

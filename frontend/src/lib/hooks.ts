@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
-import type { User } from "./types";
+import type { SetupStatus, User } from "./types";
 
 export function useMe() {
   return useQuery({ queryKey: ["me"], queryFn: () => api<User>("/auth/me"), retry: false });
@@ -18,7 +18,7 @@ export function useRole() {
 export function useSetupStatus() {
   return useQuery({
     queryKey: ["setup-status"],
-    queryFn: () => api<{ needs_setup: boolean; github_login: boolean }>("/setup/status"),
+    queryFn: () => api<SetupStatus>("/setup/status"),
     retry: false,
   });
 }

@@ -20,7 +20,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts import github_oauth
+from apps.accounts import github_oauth, oidc
 from apps.accounts.models import ApiToken, Invite, User
 from apps.accounts.permissions import IsAdmin, SessionOnly
 from apps.accounts.serializers import (
@@ -55,6 +55,18 @@ class CsrfView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def login_providers() -> list[dict[str, str]]:
+    """Sign-in buttons for the login and invite pages."""
+    found = []
+    if github_oauth.oauth_client() is not None:
+        found.append({"id": "github", "name": "GitHub", "start_url": "/api/v1/auth/github/start"})
+    found += [
+        {"id": p.id, "name": p.name, "start_url": f"/api/v1/auth/oidc/{p.id}/start"}
+        for p in oidc.providers().values()
+    ]
+    return found
+
+
 class SetupStatusView(APIView):
     permission_classes = [AllowAny]
 
@@ -62,7 +74,12 @@ class SetupStatusView(APIView):
         responses={
             200: {
                 "type": "object",
-                "properties": {"needs_setup": {"type": "boolean"}, "github_login": {"type": "boolean"}},
+                "properties": {
+                    "needs_setup": {"type": "boolean"},
+                    "github_login": {"type": "boolean"},
+                    "login_providers": {"type": "array"},
+                    "password_login": {"type": "string"},
+                },
             }
         }
     )
@@ -71,6 +88,8 @@ class SetupStatusView(APIView):
             {
                 "needs_setup": not User.objects.exists(),
                 "github_login": github_oauth.oauth_client() is not None,
+                "login_providers": login_providers(),
+                "password_login": settings.PASSWORD_LOGIN,
             }
         )
 
@@ -111,6 +130,8 @@ class LoginView(APIView):
     def post(self, request: Request) -> Response:
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        if settings.PASSWORD_LOGIN == "none":
+            return _password_login_disabled()
         user = authenticate(
             request._request,
             username=serializer.validated_data["email"].lower(),
@@ -130,10 +151,26 @@ class LoginView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if settings.PASSWORD_LOGIN == "admins" and not cast(User, user).is_admin:
+            record("auth.login_failed", request=request, actor=user, reason="password_login_disabled")
+            return _password_login_disabled()
         login(request._request, user)
         record("auth.login", request=request, actor=user, method="password")
         logger.info("auth.login", user_id=user.pk)
         return Response(UserSerializer(user).data)
+
+
+def _password_login_disabled() -> Response:
+    return Response(
+        {
+            "error": {
+                "code": "password_login_disabled",
+                "message": "Password sign-in is disabled on this instance. Use single sign-on.",
+                "details": None,
+            }
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 
 class LogoutView(APIView):
@@ -326,6 +363,8 @@ class InvitePublicView(APIView):
                 "role": invite.role,
                 "expires_at": invite.expires_at,
                 "github_login": github_oauth.oauth_client() is not None,
+                "login_providers": login_providers(),
+                "password_login": settings.PASSWORD_LOGIN,
             }
         )
 
@@ -334,6 +373,8 @@ class InvitePublicView(APIView):
         invite = Invite.find_pending(token)
         if invite is None:
             raise Http404
+        if settings.PASSWORD_LOGIN != "all":
+            return _password_login_disabled()
         serializer = InviteAcceptSerializer(data=request.data, context={"invite": invite})
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
@@ -348,7 +389,7 @@ class InvitePublicView(APIView):
 
 
 def accept_invite(
-    invite_id: int, *, name: str, github: github_oauth.GitHubIdentity | None = None
+    invite_id: int, *, name: str, github: github_oauth.GitHubIdentity | None = None, via: str = ""
 ) -> User | None:
     """Creates the invited account. Must run inside a transaction; returns None if the invite was used."""
     invite = Invite.objects.pending().select_for_update().filter(pk=invite_id).first()
@@ -363,7 +404,11 @@ def accept_invite(
     invite.accepted_by = user
     invite.save(update_fields=["accepted_at", "accepted_by"])
     record(
-        "invite.accepted", actor=user, target=invite, role=invite.role, via="github" if github else "password"
+        "invite.accepted",
+        actor=user,
+        target=invite,
+        role=invite.role,
+        via=via or ("github" if github else "password"),
     )
     return user
 

@@ -60,11 +60,38 @@ export interface CreatedInvite extends Invite {
   email_sent: boolean;
 }
 
+export interface LoginProvider {
+  id: string;
+  name: string;
+  start_url: string;
+}
+
+export type PasswordLogin = "all" | "admins" | "none";
+
+export interface SetupStatus {
+  needs_setup: boolean;
+  github_login: boolean;
+  login_providers: LoginProvider[];
+  password_login: PasswordLogin;
+}
+
 export interface InviteInfo {
   email: string;
   role: Role;
   expires_at: string;
   github_login: boolean;
+  login_providers: LoginProvider[];
+  password_login: PasswordLogin;
+}
+
+export interface ExternalIdentity {
+  id: number;
+  provider: string;
+  provider_name: string;
+  username: string;
+  email: string;
+  created_at: string;
+  last_login_at: string | null;
 }
 
 export interface AuditEvent {

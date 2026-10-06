@@ -22,7 +22,8 @@ A web dashboard manages API keys, repositories, per-repo review settings, and th
   a per-repo **`.reviewbot.yml`**, and `/reviewbot` **comment commands**.
 - **Large-PR safety**: token-budgeted chunking plus hard size limits, so a 20k-line PR cannot run up a surprise bill.
 - **Feedback loop**: accept or dismiss findings and vote on them; dismissed findings are not re-posted.
-- **Teams**: admin, reviewer, and viewer roles; invites; sign in with GitHub; an append-only audit log.
+- **Teams**: admin, reviewer, and viewer roles; invites; sign in with GitHub, GitLab, or any OpenID Connect
+  provider (Okta, Entra ID, Keycloak) with group-to-role mapping; an append-only audit log.
   Developers need no account, since everything they see happens on the pull request.
 - **Dashboard**: PR list with risk and severity filters, review detail, run comparison, re-runs, and usage.
 - **Runs anywhere**: Docker Compose on a VM, or the Helm chart on Kubernetes with managed PostgreSQL and Redis.
@@ -98,6 +99,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - [Deploying on Kubernetes](docs/kubernetes.md) (Helm)
 - [Connecting GitHub](docs/github-app.md)
 - [Connecting GitLab](docs/gitlab.md)
+- [Single sign-on](docs/sso.md)
 - [Configuration reference](docs/configuration.md)
 - [Architecture](docs/architecture.md)
 

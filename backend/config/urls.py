@@ -2,6 +2,7 @@ from django.urls import URLPattern, URLResolver, include, path
 from drf_spectacular.views import SpectacularAPIView
 from rest_framework.routers import SimpleRouter
 
+from apps.accounts import sso_views as sso
 from apps.accounts import views as accounts
 from apps.audit import views as audit
 from apps.core import views as core
@@ -37,6 +38,10 @@ api_v1: list[URLPattern | URLResolver] = [
     path("auth/github/start", accounts.GitHubLoginStartView.as_view()),
     path("auth/github/callback", accounts.GitHubLoginCallbackView.as_view()),
     path("auth/invites/<str:token>", accounts.InvitePublicView.as_view()),
+    path("auth/oidc/<str:provider_id>/start", sso.OIDCStartView.as_view()),
+    path("auth/oidc/<str:provider_id>/callback", sso.OIDCCallbackView.as_view()),
+    path("auth/me/identities", sso.IdentityListView.as_view()),
+    path("auth/me/identities/<int:identity_id>", sso.IdentityDetailView.as_view()),
     path("setup/status", accounts.SetupStatusView.as_view()),
     path("setup", accounts.SetupView.as_view()),
     path("llm-providers", credentials.LLMProvidersView.as_view()),
