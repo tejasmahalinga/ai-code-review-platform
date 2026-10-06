@@ -4,7 +4,7 @@ import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "Reviewbot",
-  description: "Self-hosted AI code review",
+  description: "Self-hosted AI code review platform",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
