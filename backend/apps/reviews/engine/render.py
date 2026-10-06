@@ -80,6 +80,7 @@ class SummaryContext:
     dashboard_url: str
     scope_note: str = ""  # e.g. "Incremental review of changes since abc1234."
     risk_score: int | None = None
+    repeated: Sequence[tuple[str, int]] = ()  # (title, further occurrences) of consolidated patterns
 
 
 def summary_body(ctx: SummaryContext) -> str:
@@ -104,6 +105,13 @@ def summary_body(ctx: SummaryContext) -> str:
             lines.append(f"- {icon} **{f.severity}** {location} — {neutralize(f.title)}. {body}")
         if len(ctx.in_summary) > MAX_SUMMARY_LIST:
             lines.append(f"- … and {len(ctx.in_summary) - MAX_SUMMARY_LIST} more in the dashboard.")
+        lines.append("")
+
+    if ctx.repeated:
+        lines += ["### Repeated findings", ""]
+        for title, more in list(ctx.repeated)[:MAX_SUMMARY_LIST]:
+            plural = "s" if more != 1 else ""
+            lines.append(f"- {neutralize(title)}: {more} more occurrence{plural}, listed in the dashboard.")
         lines.append("")
 
     if ctx.hidden_count:

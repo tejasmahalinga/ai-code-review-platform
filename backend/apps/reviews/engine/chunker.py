@@ -61,10 +61,34 @@ def _hunk_pieces(hunk: Hunk, budget: int) -> list[str]:
     return pieces
 
 
+CONTEXT_TITLE = "Surrounding code (unchanged, new version; for reference only):"
+DIFF_TITLE = "Changes:"
+
+
+def _context_piece(context: str, budget: int) -> str:
+    """The file's context block, truncated by whole lines to ``budget`` tokens (empty if nothing fits)."""
+    if not context:
+        return ""
+    lines = [CONTEXT_TITLE]
+    used = estimate_tokens(CONTEXT_TITLE) + estimate_tokens(DIFF_TITLE) + 2
+    for line in context.splitlines():
+        cost = estimate_tokens(line) + 1
+        if used + cost > budget:
+            lines.append("   ⋮ (truncated)")
+            break
+        lines.append(line)
+        used += cost
+    return "\n".join([*lines, DIFF_TITLE]) if len(lines) > 1 else ""
+
+
 def file_segments(diff: FileDiff, budget: int) -> list[Segment]:
     header = diff.header(" [part 99]")  # longest header variant, for budgeting
     header_tokens = estimate_tokens(header) + 1
     pieces = [piece for hunk in diff.hunks for piece in _hunk_pieces(hunk, budget - header_tokens)]
+    # Context may use up to a third of a chunk; it never displaces diff lines.
+    context = _context_piece(diff.context, (budget - header_tokens) // 3)
+    if context:
+        pieces.insert(0, context)
 
     groups: list[list[str]] = []
     group: list[str] = []

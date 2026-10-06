@@ -15,6 +15,21 @@ All notable changes to this project are documented here. The format follows
     the allowed groups. It never demotes the last admin.
   - `REVIEWBOT_PASSWORD_LOGIN=admins|none` enforces SSO, keeping an admin break-glass option.
   - New **Account → Single sign-on** card for linking and unlinking. See `docs/sso.md`.
+- **Surrounding code context:** for modified files, the model also sees the file's imports and the enclosing
+  function or class of each change (from the head commit). It is on by default; turn it off under the repository's
+  **Include surrounding code** setting. Context is dropped automatically when a review would exceed the input
+  token limit.
+- **Consolidated findings:**
+  - Near-duplicate findings in one review (same file and category, within 3 lines, similar title) are merged.
+    The best one is kept and the others get the new status `merged`.
+  - A pattern repeated across many places (same rule, or same category and title) is posted at most 3 times. The
+    rest get the status `consolidated` and are counted in a new **Repeated findings** section of the summary.
+- **Evaluation harness:** `manage.py evaluate_reviews` runs the review engine over known cases and reports
+  recall, precision, false positives and tokens, with baseline comparisons and CI gates. It ships with seed cases;
+  see `docs/evaluation.md`.
+
+### Changed
+- The review prompt was revised (prompt version `2026-10-v3`) to use surrounding code for understanding only.
 
 ## [0.4.0] — 2026-10-06
 

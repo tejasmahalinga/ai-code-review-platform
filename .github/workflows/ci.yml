@@ -50,6 +50,12 @@ jobs:
           DJANGO_SETTINGS_MODULE: config.test_settings
       - name: Tests
         run: pytest --cov --cov-report=term-missing:skip-covered
+      - name: Evaluation harness smoke test
+        # The demo provider is not a model: this checks the cases and the command, not review quality.
+        run: python manage.py evaluate_reviews --provider fake
+        env:
+          DJANGO_SETTINGS_MODULE: config.test_settings
+          REVIEWBOT_ENABLE_FAKE_PROVIDER: "true"
       - name: Dependency audit
         run: pip install pip-audit && pip-audit --skip-editable --progress-spinner off || echo "::warning::pip-audit reported issues"
 

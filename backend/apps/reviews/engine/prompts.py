@@ -7,7 +7,7 @@ import json
 from apps.reviews.engine.profiles import Profile, get_profile
 from apps.reviews.engine.schema import REVIEW_SCHEMA
 
-PROMPT_VERSION = "2026-10-v2"
+PROMPT_VERSION = "2026-10-v3"
 
 SYSTEM_PROMPT = """You are a senior software engineer reviewing a pull request diff. Report concrete, \
 actionable problems introduced by the change.
@@ -18,6 +18,9 @@ How to read the diff:
 "-" = removed (removed lines have no new line number).
 - Cite new-file line numbers from the left column. Only report issues on added ("+") lines unless an \
 unchanged line is directly broken by the change.
+- Some files start with "Surrounding code": unchanged lines of the new version ("<line> | <code>"), such as \
+imports and the enclosing function. Use them to understand the change; never report issues that are only in \
+that code.
 
 What to report:
 - bug: incorrect logic, unhandled errors, race conditions, broken edge cases.

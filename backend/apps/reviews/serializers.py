@@ -15,6 +15,7 @@ REPORTED_STATUSES = [
     Finding.PostStatus.CAP_EXCEEDED,
     Finding.PostStatus.DUPLICATE,
     Finding.PostStatus.NOT_POSTED,
+    Finding.PostStatus.CONSOLIDATED,
 ]
 
 

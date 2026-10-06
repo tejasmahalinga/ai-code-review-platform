@@ -252,6 +252,7 @@ export interface RepositorySettings {
   base_branch_patterns: string[];
   rules: ReviewRule[];
   suggest_tests: boolean;
+  extended_context: boolean;
   updated_at: string;
 }
 
@@ -420,6 +421,7 @@ export const REVIEWER_SETTINGS_FIELDS: string[] = [
   "custom_instructions",
   "rules",
   "suggest_tests",
+  "extended_context",
   "post_when_no_findings",
 ];
 

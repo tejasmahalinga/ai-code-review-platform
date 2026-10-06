@@ -1,0 +1,24 @@
+description: A behaviour-preserving refactor. A good review stays quiet.
+title: Name the tax rate
+files:
+  - path: shop/pricing.py
+    status: modified
+    source: |
+      TAX_RATE = 0.2
+
+
+      def total_with_tax(prices):
+          subtotal = sum(prices)
+          return subtotal * (1 + TAX_RATE)
+    patch: |
+      @@ -1,3 +1,6 @@
+      +TAX_RATE = 0.2
+      +
+      +
+       def total_with_tax(prices):
+      -    s = sum(prices)
+      -    return s * 1.2
+      +    subtotal = sum(prices)
+      +    return subtotal * (1 + TAX_RATE)
+quiet:
+  - path: shop/pricing.py

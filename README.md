@@ -101,6 +101,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - [Connecting GitLab](docs/gitlab.md)
 - [Single sign-on](docs/sso.md)
 - [Configuration reference](docs/configuration.md)
+- [Evaluating review quality](docs/evaluation.md)
 - [Architecture](docs/architecture.md)
 
 ## Security

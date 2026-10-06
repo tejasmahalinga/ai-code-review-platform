@@ -11,7 +11,9 @@
 >   GitHub, ADM-04 audit log, KEY-05 pricing and monthly budgets, ADM-05 usage and cost analytics with CSV export,
 >   ADM-06 personal API tokens, INT-04 Slack, INT-05 email and INT-07 signed webhook notifications plus a weekly
 >   digest, INT-03 GitLab (gitlab.com and self-managed: MR reviews, discussions, commit statuses, webhooks,
->   comment commands), ADM-07 OpenID Connect single sign-on with group-to-role mapping and sign-in with GitLab. Also a Helm chart for Kubernetes (`deploy/helm/reviewbot`).
+>   comment commands), ADM-07 OpenID Connect single sign-on with group-to-role mapping and sign-in with GitLab, and review-quality work:
+>   surrounding-code context (a lightweight first step towards RE-19, without indexing), consolidation of
+>   duplicate and repeated findings, and an evaluation harness (`manage.py evaluate_reviews`, `docs/evaluation.md`). Also a Helm chart for Kubernetes (`deploy/helm/reviewbot`).
 > - Notifications are per channel (Slack webhook, email list, signed webhook), not per-user opt-in. Events are high-risk
 >   review, failed review, budget threshold, and weekly digest; deliveries are retried up to 4 attempts.
 > - Re-runs and finding triage need the reviewer role; keys, integrations and users need admin (ADM-02).

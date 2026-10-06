@@ -24,6 +24,7 @@ REVIEWER_SETTINGS_FIELDS = frozenset(
         "rules",
         "suggest_tests",
         "post_when_no_findings",
+        "extended_context",
     }
 )
 
@@ -155,6 +156,7 @@ class RepositorySettingsSerializer(serializers.ModelSerializer[RepositorySetting
             "base_branch_patterns",
             "rules",
             "suggest_tests",
+            "extended_context",
             "updated_at",
         ]
         read_only_fields = ["updated_at"]

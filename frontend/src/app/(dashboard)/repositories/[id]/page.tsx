@@ -60,6 +60,7 @@ function toForm(s: RepositorySettings): FormState {
     branch_text: s.base_branch_patterns.join("\n"),
     rules: s.rules,
     suggest_tests: s.suggest_tests,
+    extended_context: s.extended_context,
   };
 }
 
@@ -291,6 +292,12 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
               hint="Adds a test-coverage request to the prompt; test findings are capped at medium severity."
               checked={form.suggest_tests}
               onChange={(e) => update("suggest_tests", e.target.checked)}
+            />
+            <Checkbox
+              label="Include surrounding code"
+              hint="Sends imports and the enclosing function or class of changed files with the diff, so the model sees how changed code is used. Costs more tokens; dropped automatically when a review would exceed the token limit."
+              checked={form.extended_context}
+              onChange={(e) => update("extended_context", e.target.checked)}
             />
             <Checkbox
               label="Post a summary even when nothing is found"

@@ -77,6 +77,7 @@ All configuration is read from environment variables (`deploy/.env` with Docker 
 | Base branches | all | Globs such as `main` or `release/*`. Auto-reviews only run for PRs into matching branches; comment commands always work. |
 | Rules | none | Team rules: id, description, severity, and optional path globs (see below). |
 | Ask for tests | on | When source files change without test changes, the model is asked for a `test` finding (capped at medium). |
+| Include surrounding code | on | Sends the imports and the enclosing function or class of each modified file with the diff (up to 80 lines per file, 30 files). Dropped automatically when a review would exceed the input token limit. |
 | Review drafts | off | Also review draft PRs. |
 | LLM key / model override | first valid key / key default | Which credential and model to use. |
 | Minimum severity | `low` | Findings below it are stored but not posted. |

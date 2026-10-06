@@ -1,0 +1,18 @@
+description: The loop runs one index past the end of the list.
+title: Add last_n helper
+files:
+  - path: lib/seq.py
+    status: added
+    patch: |
+      @@ -0,0 +1,6 @@
+      +def last_n(items, n):
+      +    result = []
+      +    for i in range(len(items) - n, len(items) + 1):
+      +        result.append(items[i])
+      +    return result
+      +
+expected:
+  - path: lib/seq.py
+    lines: [3, 4]
+    category: bug
+    keywords: [index, range, off-by-one, bound, out of]

@@ -34,6 +34,8 @@ const POST_STATUS_TONE: Record<string, "green" | "sky" | "slate" | "amber"> = {
   below_threshold: "slate",
   low_confidence: "slate",
   not_posted: "amber",
+  merged: "slate",
+  consolidated: "slate",
 };
 
 export default function ReviewPage() {

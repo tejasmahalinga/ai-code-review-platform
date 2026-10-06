@@ -92,6 +92,6 @@ redelivered event never queues a second review.
 
 ## Limitations
 
-- Sign-in with GitLab is not available yet; people sign in with a password, an invite, or GitHub.
+- Sign-in with GitLab is set up separately from the review integration; see [single sign-on](sso.md#sign-in-with-gitlab).
 - GitLab has no atomic multi-comment review. If the GitLab API fails part-way through posting, a retried review can
   repeat the inline comments posted before the failure. The summary note is posted last.

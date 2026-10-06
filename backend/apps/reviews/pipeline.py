@@ -35,6 +35,9 @@ from apps.notifications import services as notifications
 from apps.repositories.models import SEVERITY_RANK
 from apps.reviews.engine import prompts, render
 from apps.reviews.engine.chunker import Chunk, build_chunks, estimate_tokens
+from apps.reviews.engine.consolidate import Item as ConsolidationItem
+from apps.reviews.engine.consolidate import consolidate, pattern_key
+from apps.reviews.engine.context import extract_context
 from apps.reviews.engine.diff import FileDiff, parse_patch
 from apps.reviews.engine.fingerprint import fingerprint
 from apps.reviews.engine.ignore import IgnoreMatcher
@@ -278,8 +281,15 @@ def _run(run: ReviewRun, *, git: GitProvider, llm: LLMProvider | None, log: Any)
     )
     overhead = estimate_tokens(system_prompt) + 200
     budget = max(snap["chunk_tokens"] - overhead, 1_000)
+    with_context = bool(snap.get("extended_context", True)) and _attach_context(run, git, diffs, log) > 0
     chunks = build_chunks(diffs, budget)
     estimated_input = sum(c.tokens + overhead for c in chunks)
+    if with_context and estimated_input > snap["max_input_tokens"]:
+        # Context is a nice-to-have; drop it before skipping the review for size.
+        for d in diffs:
+            d.context = ""
+        chunks = build_chunks(diffs, budget)
+        estimated_input = sum(c.tokens + overhead for c in chunks)
     run.chunk_count = len(chunks)
     run.save(update_fields=["chunk_count"])
     if estimated_input > snap["max_input_tokens"]:
@@ -334,6 +344,28 @@ def _run(run: ReviewRun, *, git: GitProvider, llm: LLMProvider | None, log: Any)
     PullRequest.objects.filter(pk=pr.pk).update(last_reviewed_sha=run.head_sha)
     _finish(run, Status.COMPLETED)
     log.info("review.completed", findings=len(findings), chunks=len(chunks), failed_chunks=len(failed))
+
+
+CONTEXT_STATUSES = {"modified", "renamed", "changed"}
+MAX_CONTEXT_FILES = 30
+MAX_CONTEXT_FILE_BYTES = 300_000
+
+
+def _attach_context(run: ReviewRun, git: GitProvider, diffs: list[FileDiff], log: Any) -> int:
+    """Adds imports and enclosing definitions from the head version of modified files. Best effort."""
+    repo = run.pull_request.repository.full_name
+    attached = 0
+    for diff in [d for d in diffs if d.status in CONTEXT_STATUSES and d.hunks][:MAX_CONTEXT_FILES]:
+        try:
+            source = git.get_file(repo, diff.path, run.head_sha)
+        except GitProviderError as exc:
+            log.info("review.context_unavailable", path=diff.path, error=str(exc))
+            continue
+        if not source or len(source) > MAX_CONTEXT_FILE_BYTES:
+            continue
+        diff.context = extract_context(source, diff.hunks)
+        attached += bool(diff.context)
+    return attached
 
 
 def _apply_repo_config(run: ReviewRun, git: GitProvider, snap: dict[str, Any], log: Any) -> dict[str, Any]:
@@ -393,7 +425,13 @@ def _incremental_files(
 # --- check runs (INT-02) ------------------------------------------------------------------------
 
 CHECK_NAME = "Reviewbot"
-REPORTED_FOR_GATE = (PostStatus.POSTED, PostStatus.IN_SUMMARY, PostStatus.CAP_EXCEEDED, PostStatus.DUPLICATE)
+REPORTED_FOR_GATE = (
+    PostStatus.POSTED,
+    PostStatus.IN_SUMMARY,
+    PostStatus.CAP_EXCEEDED,
+    PostStatus.DUPLICATE,
+    PostStatus.CONSOLIDATED,
+)
 
 
 def _start_check(run: ReviewRun, git: GitProvider, snap: dict[str, Any], log: Any) -> None:
@@ -585,6 +623,21 @@ def _record_usage(
     run.save(update_fields=["input_tokens", "output_tokens", "cost_usd"])
 
 
+def _repeated_patterns(findings: list[Finding]) -> list[tuple[str, int]]:
+    """(title of a reported instance, number of consolidated further instances) per repeated pattern."""
+    titles: dict[str, str] = {}
+    counts: dict[str, int] = {}
+    for f in findings:
+        key = pattern_key(
+            ConsolidationItem(0, f.path, f.line_start, f.line_end, f.category, f.rule_id, f.title, (0, 0.0))
+        )
+        if f.post_status == PostStatus.CONSOLIDATED:
+            counts[key] = counts.get(key, 0) + 1
+        elif f.post_status in (PostStatus.POSTED, PostStatus.IN_SUMMARY, PostStatus.CAP_EXCEEDED):
+            titles.setdefault(key, f.title)
+    return [(titles.get(key, "Repeated finding"), n) for key, n in counts.items()]
+
+
 def _budget_override(run: ReviewRun) -> bool:
     """An admin starting a review from the dashboard may exceed the budget; nothing else may."""
     user = run.created_by
@@ -674,6 +727,26 @@ def _build_findings(
             findings.append(finding)
 
     candidates = [f for f in findings if f.post_status == PostStatus.NOT_POSTED]
+    grouped = consolidate(
+        [
+            ConsolidationItem(
+                key=index,
+                path=f.path,
+                line_start=f.line_start,
+                line_end=f.line_end,
+                category=f.category,
+                rule_id=f.rule_id,
+                title=f.title,
+                rank=(SEVERITY_RANK[f.severity], f.confidence),
+            )
+            for index, f in enumerate(candidates)
+        ]
+    )
+    for index in grouped.duplicates:
+        candidates[index].post_status = PostStatus.MERGED
+    for index in grouped.repeats:
+        candidates[index].post_status = PostStatus.CONSOLIDATED
+    candidates = [f for f in candidates if f.post_status == PostStatus.NOT_POSTED]
     candidates.sort(key=lambda f: (-SEVERITY_RANK[f.severity], -f.confidence, f.path, f.line_start or 0))
     cap = int(snap.get("max_inline_comments", 25))
     inline = 0
@@ -712,6 +785,7 @@ def _post(
     )
     in_summary = [f for f in findings if f.post_status == PostStatus.IN_SUMMARY]
     hidden = [f for f in findings if f.post_status == PostStatus.CAP_EXCEEDED]
+    repeated = _repeated_patterns(findings)
     if (
         not inline
         and not in_summary
@@ -736,6 +810,7 @@ def _post(
                 head_sha=run.head_sha,
                 dashboard_url=dashboard_url(run),
                 risk_score=run.risk_score,
+                repeated=repeated,
                 scope_note=" ".join(
                     note
                     for note in (

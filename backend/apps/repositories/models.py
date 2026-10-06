@@ -203,6 +203,9 @@ class RepositorySettings(models.Model):
     suggest_tests = models.BooleanField(
         default=True, help_text="Ask for tests when source changes lack them."
     )
+    extended_context = models.BooleanField(
+        default=True, help_text="Send imports and the enclosing function of each change to the LLM."
+    )
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -239,4 +242,5 @@ class RepositorySettings(models.Model):
             "base_branch_patterns": list(self.base_branch_patterns),
             "rules": list(self.rules),
             "suggest_tests": self.suggest_tests,
+            "extended_context": self.extended_context,
         }

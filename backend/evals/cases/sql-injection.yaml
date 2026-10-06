@@ -1,0 +1,24 @@
+description: User input interpolated into a SQL string.
+title: Add user search
+files:
+  - path: app/users.py
+    status: added
+    patch: |
+      @@ -0,0 +1,8 @@
+      +from django.db import connection
+      +
+      +
+      +def find_users(name):
+      +    with connection.cursor() as cursor:
+      +        cursor.execute(f"SELECT id, email FROM users WHERE name = '{name}'")
+      +        return cursor.fetchall()
+      +
+expected:
+  - path: app/users.py
+    lines: 6
+    category: security
+    min_severity: high
+    keywords: [sql, injection, parameter]
+quiet:
+  - path: app/users.py
+    lines: [1, 4]

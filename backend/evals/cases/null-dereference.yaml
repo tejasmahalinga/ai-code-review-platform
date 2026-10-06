@@ -1,0 +1,35 @@
+description: Null checks removed although the repository can return null.
+title: Tidy up Shipping.cityFor
+files:
+  - path: src/main/java/shop/Shipping.java
+    status: modified
+    source: |
+      package shop;
+
+      public class Shipping {
+          private final UserRepository users;
+
+          public Shipping(UserRepository users) {
+              this.users = users;
+          }
+
+          public String cityFor(long userId) {
+              User user = users.findById(userId);
+              return user.getAddress().getCity();
+          }
+      }
+    patch: |
+      @@ -9,8 +9,5 @@
+       
+           public String cityFor(long userId) {
+               User user = users.findById(userId);
+      -        if (user == null || user.getAddress() == null) {
+      -            return "unknown";
+      -        }
+               return user.getAddress().getCity();
+           }
+expected:
+  - path: src/main/java/shop/Shipping.java
+    lines: [11, 12]
+    category: bug
+    keywords: ["null"]

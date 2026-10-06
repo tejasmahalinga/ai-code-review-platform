@@ -149,6 +149,8 @@ class Finding(models.Model):
         NOT_POSTED = "not_posted", "Not posted (review failed)"
         CATEGORY_FILTERED = "category_filtered", "Category excluded by profile"
         DISMISSED_EARLIER = "dismissed_earlier", "Dismissed on an earlier run"
+        MERGED = "merged", "Same issue reported twice in this review"
+        CONSOLIDATED = "consolidated", "Repeated pattern (grouped in the summary)"
 
     class State(models.TextChoices):
         OPEN = "open", "Open"

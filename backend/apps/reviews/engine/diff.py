@@ -44,6 +44,7 @@ class FileDiff:
     additions: int = 0
     deletions: int = 0
     previous_path: str | None = None
+    context: str = ""  # read-only excerpt of the new file version (see engine/context.py)
 
     @property
     def commentable_lines(self) -> set[int]:

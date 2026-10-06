@@ -1,0 +1,25 @@
+description: A file name from the query string is joined to a base directory without checks.
+title: Add download endpoint
+files:
+  - path: server/files.py
+    status: added
+    patch: |
+      @@ -0,0 +1,10 @@
+      +import os
+      +
+      +from flask import Flask, request, send_file
+      +
+      +app = Flask(__name__)
+      +UPLOADS = "/srv/uploads"
+      +
+      +@app.get("/download")
+      +def download():
+      +    return send_file(os.path.join(UPLOADS, request.args["name"]))
+expected:
+  - path: server/files.py
+    lines: 10
+    category: security
+    keywords: [path, travers, directory]
+quiet:
+  - path: server/files.py
+    lines: [1, 6]
