@@ -18,12 +18,22 @@ import {
   errorMessage,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
-import type { LLMCredential, Repository, RepositorySettings, ReviewProfile } from "@/lib/types";
+import type { LLMCredential, Repository, RepositorySettings, ReviewProfile, ReviewRule } from "@/lib/types";
 import { SEVERITIES } from "@/lib/types";
 
-type FormState = Omit<RepositorySettings, "ignore_patterns" | "effective_model" | "default_ignore_patterns" | "updated_at"> & {
+type FormState = Omit<
+  RepositorySettings,
+  "ignore_patterns" | "base_branch_patterns" | "effective_model" | "default_ignore_patterns" | "updated_at"
+> & {
   ignore_text: string;
+  branch_text: string;
 };
+
+const lines = (text: string) =>
+  text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
 
 function toForm(s: RepositorySettings): FormState {
   return {
@@ -46,6 +56,8 @@ function toForm(s: RepositorySettings): FormState {
     check_runs: s.check_runs,
     gate_severity: s.gate_severity,
     ignore_text: s.ignore_patterns.join("\n"),
+    branch_text: s.base_branch_patterns.join("\n"),
+    rules: s.rules,
   };
 }
 
@@ -72,10 +84,10 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
 
   const save = useMutation({
     mutationFn: (state: FormState) => {
-      const { ignore_text, ...rest } = state;
+      const { ignore_text, branch_text, ...rest } = state;
       return api<RepositorySettings>(`/repositories/${id}/settings`, {
         method: "PATCH",
-        body: { ...rest, ignore_patterns: ignore_text.split("\n").map((l) => l.trim()).filter(Boolean) },
+        body: { ...rest, ignore_patterns: lines(ignore_text), base_branch_patterns: lines(branch_text) },
       });
     },
     onSuccess: (data) => {
@@ -251,6 +263,20 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
           </div>
         </Card>
 
+        <Card title="Branches">
+          <Field
+            label="Only auto-review pull requests into these base branches"
+            hint="One glob per line, e.g. main or release/*. Leave empty to review pull requests into any branch. Comment commands always work."
+            error={errors.base_branch_patterns}
+          >
+            <Textarea rows={3} value={form.branch_text} onChange={(e) => update("branch_text", e.target.value)} placeholder={"main\nrelease/*"} />
+          </Field>
+        </Card>
+
+        <Card title="Rules">
+          <RulesEditor rules={form.rules} error={errors.rules} onChange={(rules) => update("rules", rules)} />
+        </Card>
+
         <Card title="Instructions">
           <Field
             label="Custom review instructions"
@@ -308,5 +334,65 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
         </div>
       </form>
     </>
+  );
+}
+
+const EMPTY_RULE: ReviewRule = { id: "", description: "", severity: "medium", paths: [], enabled: true };
+
+function RulesEditor({ rules, error, onChange }: { rules: ReviewRule[]; error?: string; onChange: (rules: ReviewRule[]) => void }) {
+  const change = (index: number, patch: Partial<ReviewRule>) => onChange(rules.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">
+        Team rules are added to the prompt for files they apply to. Findings that violate a rule are tagged with its id
+        and raised to at least its severity. Rules in <code className="text-xs">.reviewbot.yml</code> override rules
+        with the same id.
+      </p>
+      {error && <Alert>{error}</Alert>}
+      {rules.length === 0 && <p className="text-sm text-slate-500">No rules yet.</p>}
+      {rules.map((rule, index) => (
+        <div key={index} className="grid gap-2 rounded-md border border-slate-200 p-3 md:grid-cols-[8rem_1fr_7rem_12rem_auto]">
+          <Input aria-label="Rule id" placeholder="id, e.g. no-print" value={rule.id} onChange={(e) => change(index, { id: e.target.value })} />
+          <Input
+            aria-label="Rule description"
+            placeholder="What reviewers should enforce"
+            value={rule.description}
+            onChange={(e) => change(index, { description: e.target.value })}
+          />
+          <Select aria-label="Rule severity" value={rule.severity} onChange={(e) => change(index, { severity: e.target.value as ReviewRule["severity"] })}>
+            {SEVERITIES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </Select>
+          <Input
+            aria-label="Rule paths"
+            placeholder="paths, e.g. src/**, api/*.py"
+            value={rule.paths.join(", ")}
+            onChange={(e) =>
+              change(index, {
+                paths: e.target.value
+                  .split(",")
+                  .map((p) => p.trim())
+                  .filter(Boolean),
+              })
+            }
+          />
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1 text-xs text-slate-600">
+              <input type="checkbox" checked={rule.enabled} onChange={(e) => change(index, { enabled: e.target.checked })} />
+              on
+            </label>
+            <Button type="button" variant="ghost" onClick={() => onChange(rules.filter((_, i) => i !== index))}>
+              Remove
+            </Button>
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="secondary" onClick={() => onChange([...rules, { ...EMPTY_RULE }])} disabled={rules.length >= 50}>
+        Add rule
+      </Button>
+    </div>
   );
 }

@@ -5,7 +5,8 @@
 > **Implementation status (v0.1.0-dev):** every P0 feature in this plan (milestones M1–M4) is implemented on
 > Django REST Framework + PostgreSQL + Celery with a Next.js dashboard, covered by backend unit/API tests and a
 > Docker Compose end-to-end smoke test (`scripts/e2e/`). Deviations from the plan, all deliberate:
-> - P1 shipped so far: RE-10 incremental push reviews, INT-02 check runs, RE-11 review profiles.
+> - P1 shipped so far: RE-10 incremental push reviews, INT-02 check runs, RE-11 review profiles, RE-14 review
+>   rules, RE-15 `.reviewbot.yml`, RE-17 PR comment commands, REPO-03 base-branch filters.
 > - Manual re-run requires admin in v0.1 (all users are admins until ADM-02).
 > - Cost (`cost_usd`) is recorded as null until the pricing table ships with KEY-05.
 

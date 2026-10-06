@@ -47,6 +47,7 @@ class FakeGitProvider:
     compare_calls: list[tuple[str, str, str]] = field(default_factory=list)
     check_runs: list[FakeCheckRun] = field(default_factory=list)
     checks_forbidden: bool = False
+    contents: dict[tuple[str, str, str], str] = field(default_factory=dict)  # (repo, path, ref) -> text
     _next_id: int = 1000
 
     def add_pull_request(self, repo: str, info: PullRequestInfo, files: list[ChangedFile]) -> None:
@@ -86,6 +87,9 @@ class FakeGitProvider:
             comment_id = f"{review_id}{index:03d}"
             review.comments[(comment.path, comment.line)] = (comment_id, f"{base}#discussion_r{comment_id}")
         return review
+
+    def get_file(self, repo_full_name: str, path: str, ref: str) -> str | None:
+        return self.contents.get((repo_full_name, path, ref))
 
     def add_comparison(self, repo: str, base: str, head: str, result: CompareResult) -> None:
         self.comparisons[(repo, base, head)] = result

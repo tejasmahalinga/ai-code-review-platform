@@ -48,7 +48,9 @@ def inline_comment_body(finding: RenderableFinding, *, with_suggestion: bool) ->
     ]
     if with_suggestion and finding.suggestion.strip():
         parts += ["", "```suggestion", _safe_suggestion(finding.suggestion), "```"]
-    parts += ["", f"<sub>Reviewbot · confidence {finding.confidence:.2f}</sub>"]
+    rule_id = getattr(finding, "rule_id", "")
+    rule = f" · rule `{rule_id}`" if rule_id else ""
+    parts += ["", f"<sub>Reviewbot · confidence {finding.confidence:.2f}{rule}</sub>"]
     return "\n".join(parts)[:MAX_COMMENT_CHARS]
 
 

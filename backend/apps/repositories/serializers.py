@@ -8,6 +8,7 @@ from rest_framework import serializers
 from apps.credentials.models import LLMCredential
 from apps.repositories.models import Installation, Repository, RepositorySettings
 from apps.reviews.engine.ignore import DEFAULT_IGNORE_PATTERNS
+from apps.reviews.engine.repo_config import ConfigError, normalize_rules
 
 
 class InstallationSerializer(serializers.ModelSerializer[Installation]):
@@ -88,6 +89,10 @@ class RepositorySettingsSerializer(serializers.ModelSerializer[RepositorySetting
         max_length=200,
         required=False,
     )
+    base_branch_patterns = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=True), max_length=50, required=False
+    )
+    rules = serializers.JSONField(required=False)
     custom_instructions = serializers.CharField(max_length=4000, allow_blank=True, required=False)
     min_confidence = serializers.FloatField(min_value=0.0, max_value=1.0, required=False)
     max_inline_comments = serializers.IntegerField(min_value=0, max_value=100, required=False)
@@ -120,6 +125,8 @@ class RepositorySettingsSerializer(serializers.ModelSerializer[RepositorySetting
             "review_on_push",
             "check_runs",
             "gate_severity",
+            "base_branch_patterns",
+            "rules",
             "updated_at",
         ]
         read_only_fields = ["updated_at"]
@@ -134,6 +141,15 @@ class RepositorySettingsSerializer(serializers.ModelSerializer[RepositorySetting
         except Exception as exc:
             raise serializers.ValidationError(f"Invalid pattern: {exc}") from exc
         return cleaned
+
+    def validate_base_branch_patterns(self, value: list[str]) -> list[str]:
+        return [p for p in (v.strip() for v in value) if p]
+
+    def validate_rules(self, value: Any) -> list[dict[str, Any]]:
+        try:
+            return normalize_rules(value)
+        except ConfigError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance: RepositorySettings | None = self.instance

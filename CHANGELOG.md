@@ -14,6 +14,14 @@ All notable changes to this project are documented here. The format follows
 - **Review profiles (RE-11):** strict, balanced, lenient, and security-focused. Each profile has its own prompt
   focus, category filter, and threshold presets. Available at `GET /api/v1/review-profiles`.
 
+- **Review rules (RE-14):** structured team rules with path globs and severities. Findings that violate a rule are
+  tagged and raised to the rule's severity.
+- **`.reviewbot.yml` (RE-15):** repository-level settings (profile, thresholds, ignore patterns, instructions,
+  rules), read from the PR's base commit. Invalid files never block a review.
+- **PR comment commands (RE-17):** `/reviewbot review`, `/reviewbot ignore`, and `/reviewbot resume` for repository
+  members and collaborators. The App manifest now subscribes to `issue_comment`.
+- **Base-branch filters (REPO-03):** limit auto-reviews to PRs into matching branches.
+
 ### Fixed
 - Docker Compose: worker and beat now have healthchecks, so `docker compose up --wait` succeeds; gunicorn's
   control socket is disabled to avoid a permission error under the non-root user.

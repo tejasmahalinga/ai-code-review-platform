@@ -12,7 +12,8 @@ third party ever holds a token for your code.
 | Metadata | Read | Mandatory for all Apps |
 | Checks | Read & write | Report a "Reviewbot" check run per reviewed commit (optional) |
 
-Events: **Pull request**. Installation events are always delivered to Apps.
+Events: **Pull request** and **Issue comment** (for `/reviewbot` commands). Installation events are always
+delivered to Apps. Apps created before v0.2 should enable the *Issue comment* event in the App settings.
 The App never requests administration, workflow, or organization permissions, and it never approves,
 requests changes, or merges. It only posts reviews of type `COMMENT` and, optionally, check runs.
 
@@ -72,6 +73,11 @@ commit with the new head and sends **only the files changed since then** to the 
 anchored to the pull request's diff. After a force push, when the last reviewed commit is no longer an ancestor,
 it falls back to a full review. You can turn this off per repository with *Review new commits pushed to open
 pull requests*.
+
+## Comment commands
+
+Maintainers can comment `/reviewbot review`, `/reviewbot ignore`, or `/reviewbot resume` on a pull request.
+See [configuration.md](configuration.md#pr-comment-commands).
 
 ## Check runs
 

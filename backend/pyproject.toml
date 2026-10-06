@@ -26,6 +26,7 @@ dependencies = [
     "jsonschema>=4.23",
     "openai>=3.0,<4",
     "anthropic>=1.0,<2",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +39,7 @@ dev = [
     "mypy>=1.13",
     "django-stubs>=5.1",
     "djangorestframework-stubs>=3.15",
+    "types-PyYAML",
 ]
 
 [tool.setuptools.packages.find]

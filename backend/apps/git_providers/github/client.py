@@ -61,8 +61,9 @@ class GitHubAPI:
         json: Any = None,
         params: dict[str, Any] | None = None,
         attempts: int = 3,
+        accept: str = "application/vnd.github+json",
     ) -> httpx2.Response:
-        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": API_VERSION}
+        headers = {"Accept": accept, "X-GitHub-Api-Version": API_VERSION}
         if auth:
             headers["Authorization"] = auth
         url = path if path.startswith("http") else f"{self.api_url}{path}"
@@ -264,6 +265,22 @@ class GitHubInstallationClient:
             if line is not None:
                 out[(item["path"], int(line))] = (str(item["id"]), item.get("html_url", ""))
         return out
+
+    def get_file(self, repo_full_name: str, path: str, ref: str) -> str | None:
+        """Raw file contents at ``ref``, or None when the file does not exist."""
+        try:
+            response = self.api.request(
+                "GET",
+                f"/repos/{repo_full_name}/contents/{path}",
+                auth=self._auth(),
+                params={"ref": ref},
+                accept="application/vnd.github.raw+json",
+            )
+        except GitProviderError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        return response.text
 
     def compare(self, repo_full_name: str, base: str, head: str) -> CompareResult:
         """Files changed between two commits. GitHub returns at most 300 files for a comparison."""

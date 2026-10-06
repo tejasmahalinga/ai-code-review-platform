@@ -170,7 +170,7 @@ def test_manifest_requests_least_privilege(settings):
         "metadata": "read",
         "checks": "write",
     }
-    assert manifest["default_events"] == ["pull_request"]
+    assert manifest["default_events"] == ["pull_request", "issue_comment"]
     assert manifest["hook_attributes"]["url"] == f"{settings.PUBLIC_URL}/webhooks/github"
     assert manifest["public"] is False
 

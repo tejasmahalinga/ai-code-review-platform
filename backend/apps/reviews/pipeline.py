@@ -31,6 +31,14 @@ from apps.reviews.engine.diff import FileDiff, parse_patch
 from apps.reviews.engine.fingerprint import fingerprint
 from apps.reviews.engine.ignore import IgnoreMatcher
 from apps.reviews.engine.profiles import get_profile
+from apps.reviews.engine.repo_config import (
+    CONFIG_PATH,
+    ConfigError,
+    applicable_rules,
+    merge_config,
+    parse_config_file,
+    render_rules,
+)
 from apps.reviews.engine.schema import REVIEW_SCHEMA, ChunkReview, RawFinding, SchemaError, parse_review
 from apps.reviews.models import Finding, LLMUsage, PullRequest, ReviewRun
 
@@ -184,6 +192,7 @@ def _run(run: ReviewRun, *, git: GitProvider, llm: LLMProvider | None, log: Any)
         run.head_sha, run.base_sha = info.head_sha, info.base_sha
         run.save(update_fields=["head_sha", "base_sha"])
         _start_check(run, git, snap, log)
+        snap = _apply_repo_config(run, git, snap, log)
         files = git.list_files(repository.full_name, pr.number, max_files=snap["max_files"] + 1)
     except GitProviderError as exc:
         _raise_git(exc)
@@ -255,7 +264,7 @@ def _run(run: ReviewRun, *, git: GitProvider, llm: LLMProvider | None, log: Any)
     # 4. LLM
     _set_stage(run, Stage.LLM)
     provider = llm or provider_for(credential, model=run.model or None)
-    results = _review_chunks(provider, chunks, system_prompt, pr.title)
+    results = _review_chunks(provider, chunks, system_prompt, pr.title, snap.get("rules", []))
     _record_usage(run, credential, provider, results)
     auth_errors = [r.error for r in results if isinstance(r.error, AuthenticationFailed)]
     if auth_errors:
@@ -286,6 +295,31 @@ def _run(run: ReviewRun, *, git: GitProvider, llm: LLMProvider | None, log: Any)
     PullRequest.objects.filter(pk=pr.pk).update(last_reviewed_sha=run.head_sha)
     _finish(run, Status.COMPLETED)
     log.info("review.completed", findings=len(findings), chunks=len(chunks), failed_chunks=len(failed))
+
+
+def _apply_repo_config(run: ReviewRun, git: GitProvider, snap: dict[str, Any], log: Any) -> dict[str, Any]:
+    """Reads `.reviewbot.yml` from the PR's base commit (never the head) and merges it over the dashboard
+    settings. Invalid files never block a review; the error is shown in the summary and the dashboard."""
+    run.config_source, run.config_error = "dashboard", ""
+    text = (
+        git.get_file(run.pull_request.repository.full_name, CONFIG_PATH, run.base_sha)
+        if run.base_sha
+        else None
+    )
+    if text is not None:
+        try:
+            file_config = parse_config_file(text)
+        except ConfigError as exc:
+            run.config_error = f"{CONFIG_PATH}: {exc}"[:500]
+            log.info("review.config_invalid", error=str(exc))
+        else:
+            snap = merge_config(snap, file_config)
+            run.config_source = CONFIG_PATH
+            if file_config.warnings:
+                run.config_error = f"{CONFIG_PATH}: " + "; ".join(file_config.warnings)[:450]
+            run.settings_snapshot = snap
+    run.save(update_fields=["config_source", "config_error", "settings_snapshot"])
+    return snap
 
 
 def _incremental_files(
@@ -431,12 +465,20 @@ def _filter_files(
 
 
 def _review_chunks(
-    provider: LLMProvider, chunks: list[Chunk], system_prompt: str, title: str
+    provider: LLMProvider,
+    chunks: list[Chunk],
+    system_prompt: str,
+    title: str,
+    rules: list[dict[str, Any]] | None = None,
 ) -> list[ChunkResult]:
     def work(chunk: Chunk) -> ChunkResult:
         result = ChunkResult(chunk=chunk)
         user_prompt = prompts.build_user_prompt(
-            pr_title=title, chunk_text=chunk.text, chunk_index=chunk.index, chunk_count=len(chunks)
+            pr_title=title,
+            chunk_text=chunk.text,
+            chunk_index=chunk.index,
+            chunk_count=len(chunks),
+            rules_text=render_rules(applicable_rules(rules or [], chunk.paths)),
         )
         prompt = user_prompt
         for attempt in range(2):  # one repair retry for malformed output
@@ -527,6 +569,7 @@ def _build_findings(
     )
     min_rank = SEVERITY_RANK[snap.get("min_severity", "low")]
     allowed_categories = get_profile(snap.get("profile")).allowed_categories
+    rules = {r["id"]: r for r in snap.get("rules", []) if r.get("enabled", True)}
     min_confidence = float(snap.get("min_confidence", 0.5))
     seen: set[str] = set()
     findings: list[Finding] = []
@@ -535,6 +578,10 @@ def _build_findings(
             continue
         for raw in result.review.findings:
             diff = by_path.get(raw.path)
+            rule = rules.get(raw.rule_id)
+            severity = raw.severity
+            if rule and SEVERITY_RANK[rule["severity"]] > SEVERITY_RANK[severity]:
+                severity = rule["severity"]
             anchored, start, end = _anchor(raw, diff)
             context = diff.context_around(end or raw.line_end) if diff else ""
             fp = fingerprint(raw.path, raw.category, raw.title, context)
@@ -546,7 +593,8 @@ def _build_findings(
                 line_end=end,
                 anchored=anchored,
                 category=raw.category,
-                severity=raw.severity,
+                severity=severity,
+                rule_id=raw.rule_id if rule else "",
                 confidence=raw.confidence,
                 title=raw.title,
                 body=raw.body,
@@ -554,7 +602,7 @@ def _build_findings(
             )
             if allowed_categories is not None and raw.category not in allowed_categories:
                 finding.post_status = PostStatus.CATEGORY_FILTERED
-            elif SEVERITY_RANK[raw.severity] < min_rank:
+            elif SEVERITY_RANK[severity] < min_rank:
                 finding.post_status = PostStatus.BELOW_THRESHOLD
             elif raw.confidence < min_confidence:
                 finding.post_status = PostStatus.LOW_CONFIDENCE
@@ -619,10 +667,15 @@ def _post(
                 model=run.model,
                 head_sha=run.head_sha,
                 dashboard_url=dashboard_url(run),
-                scope_note=(
-                    f"Incremental review of changes since {run.compare_base_sha[:7]}."
-                    if run.incremental
-                    else ""
+                scope_note=" ".join(
+                    note
+                    for note in (
+                        f"Incremental review of changes since {run.compare_base_sha[:7]}."
+                        if run.incremental
+                        else "",
+                        f"Configuration problem: {run.config_error}." if run.config_error else "",
+                    )
+                    if note
                 ),
             )
         )

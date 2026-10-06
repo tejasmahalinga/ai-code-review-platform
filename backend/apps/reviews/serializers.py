@@ -74,6 +74,7 @@ class PullRequestSerializer(serializers.ModelSerializer[PullRequest]):
             "html_url",
             "head_sha",
             "updated_at",
+            "reviews_paused",
             "latest_review",
         ]
 
@@ -109,6 +110,7 @@ class FindingSerializer(serializers.ModelSerializer[Finding]):
             "post_status_label",
             "provider_comment_url",
             "fingerprint",
+            "rule_id",
         ]
 
 
@@ -146,6 +148,8 @@ class ReviewRunSerializer(ReviewRunSummarySerializer):
             "incremental",
             "compare_base_sha",
             "profile",
+            "config_source",
+            "config_error",
         ]
 
     def get_profile(self, obj: ReviewRun) -> str:

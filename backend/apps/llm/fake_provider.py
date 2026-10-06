@@ -86,6 +86,7 @@ class FakeProvider:
                             "line_end": line_no,
                             "confidence": 0.9,
                             "suggestion": None,
+                            "rule_id": None,
                         }
                     )
                     break

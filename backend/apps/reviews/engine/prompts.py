@@ -66,10 +66,13 @@ def build_system_prompt(
     return "\n\n".join(parts)
 
 
-def build_user_prompt(*, pr_title: str, chunk_text: str, chunk_index: int, chunk_count: int) -> str:
+def build_user_prompt(
+    *, pr_title: str, chunk_text: str, chunk_index: int, chunk_count: int, rules_text: str = ""
+) -> str:
     title = " ".join(pr_title.split())[:300]
     part = f"This is part {chunk_index + 1} of {chunk_count} of the diff.\n" if chunk_count > 1 else ""
-    return f"<pull_request_title>{title}</pull_request_title>\n{part}<diff>\n{chunk_text}\n</diff>"
+    rules = f"{rules_text}\n" if rules_text else ""
+    return f"{rules}<pull_request_title>{title}</pull_request_title>\n{part}<diff>\n{chunk_text}\n</diff>"
 
 
 def repair_prompt(user_prompt: str, error: str) -> str:

@@ -15,7 +15,7 @@ from apps.git_providers.github.client import GitHubAppClient, GitHubInstallation
 # Least privilege: read code, write PR reviews and check runs. Nothing else.
 APP_PERMISSIONS = {"pull_requests": "write", "contents": "read", "metadata": "read", "checks": "write"}
 # installation / installation_repositories events are always delivered to Apps.
-APP_EVENTS = ["pull_request"]
+APP_EVENTS = ["pull_request", "issue_comment"]  # issue_comment carries `/reviewbot` commands
 
 
 def webhook_url() -> str:

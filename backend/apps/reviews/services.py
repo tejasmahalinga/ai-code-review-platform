@@ -99,9 +99,14 @@ def supersede_queued_push_runs(pull_request: PullRequest) -> int:
     )
 
 
-def request_manual_review(pull_request: PullRequest, user: Any) -> ReviewRun:
+def request_review(pull_request: PullRequest, *, trigger: str, user: Any = None) -> ReviewRun:
+    """Queues an on-demand review (dashboard or PR comment). Refuses while one is queued or running."""
     with transaction.atomic():
         locked = PullRequest.objects.select_for_update().get(pk=pull_request.pk)
         if locked.review_runs.filter(status__in=ReviewRun.ACTIVE).exists():
             raise ActiveRunExists()
-        return create_run(locked, trigger=ReviewRun.Trigger.MANUAL, head_sha=locked.head_sha, created_by=user)
+        return create_run(locked, trigger=trigger, head_sha=locked.head_sha, created_by=user)
+
+
+def request_manual_review(pull_request: PullRequest, user: Any) -> ReviewRun:
+    return request_review(pull_request, trigger=ReviewRun.Trigger.MANUAL, user=user)

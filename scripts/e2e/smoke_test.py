@@ -146,6 +146,7 @@ def main() -> None:
     expect(titles.get("Hard-coded credential") == "posted", "hard-coded credential finding posted inline")
     expect(any(f["path"] == "package-lock.json" for f in run["files_ignored"]), "lockfile ignored")
     expect(run["input_tokens"] > 0, "token usage recorded")
+    expect(run["config_source"] == ".reviewbot.yml" and not run["config_error"], ".reviewbot.yml from base applied")
 
     with urllib.request.urlopen(f"{FAKE_GITHUB}/_posted", timeout=10) as response:  # noqa: S310
         posted = json.loads(response.read())
@@ -185,6 +186,23 @@ def main() -> None:
     expect(push_run["status"] == "completed", f"push review completed ({push_run['status']} {push_run['error']})")
     expect(push_run["incremental"] is True and push_run["compare_base_sha"] == "a" * 40, "push review is incremental")
     expect([f["path"] for f in push_run["files_reviewed"]] == ["app/util.py"], "only the new change was reviewed")
+
+    # A maintainer asks for a fresh review from a PR comment.
+    comment = {
+        "action": "created",
+        "installation": {"id": 77},
+        "repository": {"id": 4242, "full_name": "acme/demo"},
+        "issue": {"number": 1, "title": "Add expression runner", "pull_request": {"url": "x"}, "user": {"login": "octocat"}},
+        "comment": {"body": "/reviewbot review", "author_association": "OWNER", "user": {"login": "maintainer", "type": "User"}},
+    }
+    comment_raw = json.dumps(comment).encode()
+    comment_sig = "sha256=" + hmac.new(WEBHOOK_SECRET.encode(), comment_raw, hashlib.sha256).hexdigest()
+    status, data = call("POST", "/webhooks/github", raw=comment_raw, headers={"X-Hub-Signature-256": comment_sig,
+                                                                              "X-GitHub-Event": "issue_comment",
+                                                                              "X-GitHub-Delivery": "e2e-comment"})
+    expect(status == 202 and data["reason"] == "review_queued", f"/reviewbot review accepted ({status} {data})")
+    command_run_id = run_id_from_history(run["pull_request"]["id"], "command")
+    wait_for(lambda: call("GET", f"/api/v1/reviews/{command_run_id}")[1]["status"] == "completed", "command review")
 
     status, usage = call("GET", "/api/v1/usage?group_by=credential")
     expect(usage["totals"]["requests"] >= 2, "usage endpoint aggregates calls")

@@ -26,6 +26,7 @@ class PullRequest(models.Model):
     head_sha = models.CharField(max_length=64)
     html_url = models.URLField(max_length=500, blank=True)
     last_reviewed_sha = models.CharField(max_length=64, blank=True)
+    reviews_paused = models.BooleanField(default=False, help_text="Set by `/reviewbot ignore`.")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now, db_index=True)
 
@@ -44,6 +45,7 @@ class ReviewRun(models.Model):
         WEBHOOK = "webhook", "Webhook"
         MANUAL = "manual", "Manual"
         PUSH = "push", "New commits"
+        COMMAND = "command", "PR comment command"
 
     class Status(models.TextChoices):
         QUEUED = "queued", "Queued"
@@ -95,6 +97,8 @@ class ReviewRun(models.Model):
     compare_base_sha = models.CharField(max_length=64, blank=True)
     check_run_id = models.CharField(max_length=64, blank=True)
     summary = models.TextField(blank=True)
+    config_source = models.CharField(max_length=32, blank=True, help_text="dashboard or .reviewbot.yml")
+    config_error = models.CharField(max_length=500, blank=True)
     input_tokens = models.PositiveIntegerField(default=0)
     output_tokens = models.PositiveIntegerField(default=0)
     provider_review_id = models.CharField(max_length=64, blank=True)
@@ -150,6 +154,7 @@ class Finding(models.Model):
     title = models.CharField(max_length=300)
     body = models.TextField()
     suggestion = models.TextField(blank=True)
+    rule_id = models.CharField(max_length=64, blank=True)
     post_status = models.CharField(max_length=24, choices=PostStatus.choices, default=PostStatus.NOT_POSTED)
     provider_comment_id = models.CharField(max_length=64, blank=True)
     provider_comment_url = models.URLField(max_length=500, blank=True)

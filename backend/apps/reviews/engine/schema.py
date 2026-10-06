@@ -28,6 +28,7 @@ FINDING_SCHEMA: dict[str, Any] = {
         "title",
         "body",
         "suggestion",
+        "rule_id",
     ],
     "properties": {
         "path": {"type": "string", "description": "File path exactly as shown after 'File:'."},
@@ -41,6 +42,10 @@ FINDING_SCHEMA: dict[str, Any] = {
         "suggestion": {
             "anyOf": [{"type": "string"}, {"type": "null"}],
             "description": "Replacement code for lines line_start..line_end, or null.",
+        },
+        "rule_id": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+            "description": "Id of the repository rule this finding violates, or null.",
         },
     },
 }
@@ -78,6 +83,7 @@ class RawFinding:
     title: str
     body: str
     suggestion: str
+    rule_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -108,6 +114,7 @@ def parse_review(data: Any) -> ChunkReview:
                 title=" ".join(item["title"].split())[:MAX_TITLE] or "Untitled finding",
                 body=item["body"].strip()[:MAX_BODY],
                 suggestion=(item["suggestion"] or "")[:MAX_SUGGESTION],
+                rule_id=str(item.get("rule_id") or "")[:64],
             )
         )
     return ChunkReview(summary=data["summary"].strip()[:4000], findings=findings)

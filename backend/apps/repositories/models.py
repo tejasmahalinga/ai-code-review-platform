@@ -178,6 +178,13 @@ class RepositorySettings(models.Model):
         default="",
         help_text="Fail the check run when a finding at or above this severity is reported (empty = never).",
     )
+    base_branch_patterns = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        blank=True,
+        help_text="Only auto-review PRs whose base branch matches one of these globs (empty = all).",
+    )
+    rules = models.JSONField(default=list, blank=True, help_text="Structured review rules (RE-14).")
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -211,4 +218,6 @@ class RepositorySettings(models.Model):
             "review_on_push": self.review_on_push,
             "check_runs": self.check_runs,
             "gate_severity": self.gate_severity,
+            "base_branch_patterns": list(self.base_branch_patterns),
+            "rules": list(self.rules),
         }

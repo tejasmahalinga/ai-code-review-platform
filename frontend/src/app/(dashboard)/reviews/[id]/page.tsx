@@ -113,6 +113,13 @@ export default function ReviewPage() {
                 <Alert kind="info">A newer push arrived before this review started, so it was skipped in favor of the newer commit.</Alert>
               </div>
             )}
+            {run.config_error && (
+              <div className="mb-4">
+                <Alert kind="warning">
+                  {run.config_error}. The review used the dashboard settings for anything that could not be applied.
+                </Alert>
+              </div>
+            )}
             {run.status === "failed" && (
               <div className="mb-4">
                 <Alert>
@@ -130,6 +137,7 @@ export default function ReviewPage() {
               <Stat label="Duration" value={run.duration_ms != null ? `${(run.duration_ms / 1000).toFixed(1)} s` : "—"} />
               <Stat label="Queued" value={formatDate(run.created_at)} />
               <Stat label="Profile" value={run.profile} />
+              <Stat label="Config" value={run.config_source || "dashboard"} />
               <Stat
                 label="Scope"
                 value={
@@ -232,6 +240,7 @@ export default function ReviewPage() {
 function triggerLabel(run: ReviewRun): string {
   if (run.trigger === "manual") return `manual${run.created_by_email ? ` (${run.created_by_email})` : ""}`;
   if (run.trigger === "push") return "new commits";
+  if (run.trigger === "command") return "/reviewbot comment";
   return "pull request opened";
 }
 
@@ -250,6 +259,7 @@ function FindingItem({ finding: f }: { finding: Finding }) {
       <div className="flex flex-wrap items-center gap-2">
         <SeverityBadge severity={f.severity} />
         <Badge>{f.category}</Badge>
+        {f.rule_id && <Badge tone="violet">rule {f.rule_id}</Badge>}
         <span className="font-medium">{f.title}</span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">

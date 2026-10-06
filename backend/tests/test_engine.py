@@ -148,6 +148,7 @@ class TestSchema:
             "title": "  Off   by one ",
             "body": "x",
             "suggestion": None,
+            "rule_id": None,
         }
         item.update(overrides)
         return {"summary": "ok", "findings": [item]}

@@ -130,7 +130,8 @@ function PullRequests() {
                   </td>
                   <td className="px-4 py-2">
                     <Badge tone={pr.state === "open" ? "green" : pr.state === "merged" ? "violet" : "slate"}>{pr.state}</Badge>{" "}
-                    {pr.is_draft && <Badge>draft</Badge>}
+                    {pr.is_draft && <Badge>draft</Badge>}{" "}
+                    {pr.reviews_paused && <Badge tone="amber">paused</Badge>}
                   </td>
                   <td className="px-4 py-2">
                     {pr.latest_review ? (

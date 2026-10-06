@@ -49,6 +49,13 @@ UTIL_FILE = {
     "patch": "@@ -0,0 +1,3 @@\n+def helper():\n+    # TODO: handle errors\n+    return 1",
 }
 CHECKS: list[dict] = []
+CONFIG_FILE = (
+    "instructions: Prefer pathlib over os.path.\n"
+    "rules:\n"
+    "  - id: no-eval\n"
+    "    description: Never call eval() on user input\n"
+    "    severity: critical\n"
+)
 REPO = {"id": 4242, "name": "demo", "full_name": "acme/demo", "private": True, "default_branch": "main",
         "html_url": "https://github.example/acme/demo"}
 POSTED: list[dict] = []
@@ -59,6 +66,14 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_text(self, status: int, text: str) -> None:
+        body = text.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -74,6 +89,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, POSTED)
         if path == "/_checks":
             return self._send(200, CHECKS)
+        if path == "/repos/acme/demo/contents/.reviewbot.yml":
+            # The config file exists on the base commit only (Reviewbot must never read the PR head's copy).
+            if f"ref={'b' * 40}" in self.path:
+                return self._send_text(200, CONFIG_FILE)
+            return self._send(404, {"message": "Not Found"})
         if path == f"/repos/acme/demo/compare/{'a' * 40}...{NEW_HEAD}":
             return self._send(200, {"status": "ahead", "files": [UTIL_FILE]})
         if path == "/app/installations":

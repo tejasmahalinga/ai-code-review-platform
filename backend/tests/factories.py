@@ -117,6 +117,7 @@ def finding(
     confidence: float = 0.9,
     line_start: int | None = None,
     suggestion: str | None = None,
+    rule_id: str | None = None,
 ) -> dict[str, Any]:
     return {
         "path": path,
@@ -128,6 +129,7 @@ def finding(
         "title": title,
         "body": f"Explanation for {title}.",
         "suggestion": suggestion,
+        "rule_id": rule_id,
     }
 
 
