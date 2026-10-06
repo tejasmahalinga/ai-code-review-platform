@@ -5,13 +5,19 @@ import Link from "next/link";
 import { useState } from "react";
 import { Alert, Badge, Empty, Input, PageHeader, Spinner, TextLink, buttonClass, errorMessage } from "@/components/ui";
 import { api } from "@/lib/api";
+import { useRole } from "@/lib/hooks";
 import type { GitHubIntegration, Repository } from "@/lib/types";
 
 export default function RepositoriesPage() {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
+  const { isAdmin } = useRole();
   const repos = useQuery({ queryKey: ["repositories"], queryFn: () => api<Repository[]>("/repositories") });
-  const github = useQuery({ queryKey: ["github"], queryFn: () => api<GitHubIntegration>("/integrations/github") });
+  const github = useQuery({
+    queryKey: ["github"],
+    queryFn: () => api<GitHubIntegration>("/integrations/github"),
+    enabled: isAdmin,
+  });
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
       api<Repository>(`/repositories/${id}`, { method: "PATCH", body: { enabled } }),
@@ -99,7 +105,8 @@ export default function RepositoriesPage() {
                           type="checkbox"
                           className="h-4 w-4"
                           checked={r.enabled}
-                          disabled={toggle.isPending}
+                          disabled={toggle.isPending || !isAdmin}
+                          title={isAdmin ? undefined : "Only admins can enable or disable reviews"}
                           onChange={(e) => toggle.mutate({ id: r.id, enabled: e.target.checked })}
                           aria-label={`Enable reviews for ${r.full_name}`}
                         />

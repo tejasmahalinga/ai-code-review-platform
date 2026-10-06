@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "reviewbot.fullname" . }}-config
+  labels:
+    {{- include "reviewbot.labels" . | nindent 4 }}
+data:
+  REVIEWBOT_PUBLIC_URL: {{ include "reviewbot.publicUrl" . | quote }}
+  # TLS ends at the ingress; trust its X-Forwarded-Proto / X-Forwarded-For headers.
+  REVIEWBOT_BEHIND_PROXY: "true"
+  # Internal names used by probes and the web pods; the public host is added automatically.
+  DJANGO_ALLOWED_HOSTS: {{ printf "localhost,127.0.0.1,api,%s-api" (include "reviewbot.fullname" .) | quote }}
+  LOG_FORMAT: "json"
+  GUNICORN_WORKERS: {{ .Values.api.gunicornWorkers | quote }}
+  CELERY_CONCURRENCY: {{ .Values.worker.concurrency | quote }}
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

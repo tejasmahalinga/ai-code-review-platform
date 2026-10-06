@@ -23,6 +23,8 @@ All configuration is read from environment variables (`deploy/.env` with Docker 
 | `REVIEWBOT_BEHIND_PROXY` | `false` | Trust `X-Forwarded-Proto` from a TLS-terminating proxy. |
 | `REVIEWBOT_SESSION_AGE_SECONDS` | `1209600` (14 days) | Dashboard session lifetime. |
 | `REVIEWBOT_LOGIN_RATE` | `5/min` | Failed logins allowed per IP and email. |
+| `REVIEWBOT_INVITE_TTL_HOURS` | `72` | How long an invite link stays valid. |
+| `REVIEWBOT_AUDIT_RETENTION_DAYS` | `365` | Audit events older than this are deleted daily. |
 | `DJANGO_DEBUG` | `false` | Never enable in production. |
 
 ## Git providers
@@ -154,3 +156,50 @@ voted 👍/👎. A dismissed finding is not posted again on later reviews of the
 (also at `GET /api/v1/feedback-stats?repository=<id>`). Feedback is collected only; it does not tune prompts
 automatically.
 
+## Team and sign-in
+
+| Variable | Default | Description |
+|---|---|---|
+| `REVIEWBOT_GITHUB_LOGIN` | `true` | Show "Sign in with GitHub" when an OAuth client is available. |
+| `REVIEWBOT_GITHUB_OAUTH_CLIENT_ID` / `_SECRET` | empty | Use a separate GitHub OAuth App for sign-in. By default the GitHub App's own client ID and secret are used. |
+| `REVIEWBOT_ALLOW_SIGNUP` | `false` | Let GitHub users without an invite create an account. |
+| `REVIEWBOT_SIGNUP_EMAIL_DOMAINS` | empty | With signup on, only allow these verified email domains (comma-separated). Empty means any domain. |
+| `REVIEWBOT_SIGNUP_ROLE` | `viewer` | Role for self-signup accounts: `viewer` or `reviewer`. It is never `admin`. |
+| `REVIEWBOT_EMAIL_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_USE_TLS`, `_FROM` | empty / `587` / `true` | SMTP for invite emails. Without it, the dashboard shows the invite link for you to share. |
+
+### Roles
+
+| | Admin | Reviewer | Viewer |
+|---|---|---|---|
+| See pull requests, reviews, findings, repository settings | ✓ | ✓ | ✓ |
+| Re-run reviews; accept, dismiss and vote on findings | ✓ | ✓ | |
+| Edit review rules: profile, thresholds, rules, instructions, ignored files, test suggestions | ✓ | ✓ | |
+| Enable repositories; edit keys, triggers, checks, branch filters, cost limits | ✓ | | |
+| LLM keys, integrations, team, audit log, usage | ✓ | | |
+
+The API enforces every rule; the dashboard only hides controls you cannot use. At least one active admin always
+remains. A deactivated user's sessions stop working right away. Developers who only open pull requests need no
+account: reviews, checks and `/reviewbot` commands all happen on GitHub.
+
+### How people sign in
+
+1. **Invite** (recommended): an admin enters an email and a role under **Team**. The person opens the single-use
+   link and either sets a password or clicks **Continue with GitHub**.
+2. **GitHub**: an existing account is matched by GitHub user ID, or the first time by a *verified* email
+   address on the GitHub account. Accounts already linked to a different GitHub user are never re-linked.
+3. **Password**: email and password. Failed attempts are rate limited.
+
+### Audit log
+
+Admins see an append-only log under **Audit log** (also `GET /api/v1/audit-events`). It records:
+
+- sign-ins (successful and failed) and sign-outs;
+- password changes and linking or unlinking a GitHub account;
+- invites, role changes, and deactivating or reactivating users;
+- LLM key creation, edits, rotation and revocation;
+- repositories being enabled or disabled, and settings changes, with a before/after diff;
+- GitHub connection changes;
+- manual review requests and finding triage.
+
+Event metadata goes through the same secret redaction as the logs. The API has no endpoint to edit or delete
+events, and a database trigger rejects updates.

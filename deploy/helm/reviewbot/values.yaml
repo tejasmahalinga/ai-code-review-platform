@@ -1,0 +1,146 @@
+# Reviewbot Helm chart. PostgreSQL 14+ and Redis 6+ are external (use managed services in the cloud).
+# Minimal install:
+#   helm install reviewbot ./deploy/helm/reviewbot \
+#     --set publicUrl=https://reviewbot.example.com \
+#     --set ingress.host=reviewbot.example.com \
+#     --set secrets.existingSecret=reviewbot-secrets
+
+# Public HTTPS URL of the dashboard. GitHub webhooks and sign-in callbacks are built from it.
+publicUrl: ""
+
+image:
+  api:
+    repository: ghcr.io/tejasmahalinga/reviewbot-api
+    tag: ""  # defaults to the chart appVersion
+  web:
+    repository: ghcr.io/tejasmahalinga/reviewbot-web
+    tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+secrets:
+  # Name of an existing Secret with the keys below (recommended; e.g. from External Secrets or Sealed Secrets).
+  # Required keys: DJANGO_SECRET_KEY, REVIEWBOT_ENCRYPTION_KEYS, DATABASE_URL, REDIS_URL.
+  existingSecret: ""
+  # Otherwise the chart creates a Secret from these values. Back up REVIEWBOT_ENCRYPTION_KEYS: losing it
+  # makes stored LLM keys and GitHub App credentials unreadable.
+  djangoSecretKey: ""
+  encryptionKeys: ""
+  databaseUrl: ""   # postgres://user:password@host:5432/reviewbot?sslmode=require
+  redisUrl: ""      # redis://host:6379/0 or rediss://... for TLS
+  # Additional secret environment variables, e.g. REVIEWBOT_EMAIL_PASSWORD or REVIEWBOT_METRICS_TOKEN.
+  extra: {}
+
+# Additional non-secret environment variables for the API, worker and beat (see docs/configuration.md), e.g.
+#   REVIEWBOT_ALLOW_SIGNUP: "true"
+#   REVIEWBOT_SIGNUP_EMAIL_DOMAINS: "example.com"
+#   REVIEWBOT_EMAIL_HOST: "smtp.example.com"
+#   GITHUB_URL / GITHUB_API_URL for GitHub Enterprise Server
+config: {}
+
+api:
+  replicas: 2
+  gunicornWorkers: 3
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  podAnnotations: {}
+
+worker:
+  replicas: 2
+  # Concurrent reviews per worker pod. Reviews mostly wait on the LLM, so this can exceed the CPU count.
+  concurrency: 4
+  resources:
+    requests: {cpu: 100m, memory: 384Mi}
+    limits: {memory: 1Gi}
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  # Reviews are retried after a worker is lost; this lets running reviews finish on shutdown.
+  terminationGracePeriodSeconds: 120
+  podAnnotations: {}
+
+# Celery beat (periodic cleanup and stuck-run recovery). Always exactly one replica.
+beat:
+  resources:
+    requests: {cpu: 20m, memory: 128Mi}
+    limits: {memory: 256Mi}
+  podAnnotations: {}
+
+web:
+  replicas: 2
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 384Mi}
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  podAnnotations: {}
+
+# Runs `manage.py migrate` once per release revision. API, worker and beat pods wait for it.
+migrations:
+  enabled: true
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
+service:
+  type: ClusterIP
+  apiPort: 8000
+  webPort: 3000
+  # The published web image proxies /api to http://api:8000 (baked in at build time). This extra Service
+  # named "api" makes that work inside the namespace. Disable it if you run two releases in one namespace
+  # and route /api through the ingress only.
+  apiAlias: true
+
+ingress:
+  enabled: true
+  className: ""
+  host: ""
+  annotations: {}
+  # e.g. [{secretName: reviewbot-tls, hosts: [reviewbot.example.com]}]
+  tls: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []

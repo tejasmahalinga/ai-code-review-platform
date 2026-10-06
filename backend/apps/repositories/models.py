@@ -57,6 +57,10 @@ class GitProviderConnection(models.Model):
         return self._dec(self.encrypted_webhook_secret)
 
     @property
+    def client_secret(self) -> str:
+        return self._dec(self.encrypted_client_secret)
+
+    @property
     def install_url(self) -> str:
         if self.provider == self.Provider.GITHUB and self.app_slug:
             return f"{self.web_url}/apps/{self.app_slug}/installations/new"

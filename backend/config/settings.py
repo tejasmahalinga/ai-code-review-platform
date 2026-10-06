@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     "apps.repositories",
     "apps.webhooks",
     "apps.reviews",
+    "apps.audit",
 ]
 
 MIDDLEWARE = [
@@ -135,7 +136,8 @@ SESSION_COOKIE_SECURE = SECURE_COOKIES
 SESSION_COOKIE_AGE = env_int("REVIEWBOT_SESSION_AGE_SECONDS", 60 * 60 * 24 * 14)
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = SECURE_COOKIES
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if env_bool("REVIEWBOT_BEHIND_PROXY") else None
+BEHIND_PROXY = env_bool("REVIEWBOT_BEHIND_PROXY")
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if BEHIND_PROXY else None
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
@@ -155,7 +157,11 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.DefaultCursorPagination",
     "EXCEPTION_HANDLER": "apps.core.exceptions.exception_handler",
-    "DEFAULT_THROTTLE_RATES": {"login": env("REVIEWBOT_LOGIN_RATE", "5/min"), "setup": "10/min"},
+    "DEFAULT_THROTTLE_RATES": {
+        "login": env("REVIEWBOT_LOGIN_RATE", "5/min"),
+        "setup": "10/min",
+        "invite": "30/min",
+    },
     "UNAUTHENTICATED_USER": "django.contrib.auth.models.AnonymousUser",
 }
 
@@ -185,6 +191,7 @@ CELERY_TASK_EAGER_PROPAGATES = False
 CELERY_BEAT_SCHEDULE = {
     "reap-stuck-reviews": {"task": "apps.reviews.tasks.reap_stuck_runs", "schedule": 300.0},
     "prune-webhook-deliveries": {"task": "apps.webhooks.tasks.prune_deliveries", "schedule": 3600.0},
+    "prune-audit-events": {"task": "apps.audit.tasks.prune_audit_events", "schedule": 86400.0},
 }
 
 # --- Reviewbot ----------------------------------------------------------------------------------
@@ -204,6 +211,30 @@ STUCK_RUN_MINUTES = env_int("REVIEWBOT_STUCK_RUN_MINUTES", 30)
 # Wait this long after a push before reviewing it; newer pushes in the window supersede it.
 REVIEWBOT_PUSH_DEBOUNCE_SECONDS = env_int("REVIEWBOT_PUSH_DEBOUNCE_SECONDS", 60)
 WEBHOOK_RETENTION_DAYS = env_int("REVIEWBOT_WEBHOOK_RETENTION_DAYS", 30)
+AUDIT_RETENTION_DAYS = env_int("REVIEWBOT_AUDIT_RETENTION_DAYS", 365)
+INVITE_TTL_HOURS = env_int("REVIEWBOT_INVITE_TTL_HOURS", 72)
+
+# --- Sign-in with GitHub (ADM-03) ---------------------------------------------------------------
+# Uses the GitHub App's OAuth client by default; set these to use a separate OAuth App instead.
+GITHUB_OAUTH_CLIENT_ID = env("REVIEWBOT_GITHUB_OAUTH_CLIENT_ID", "") or ""
+GITHUB_OAUTH_CLIENT_SECRET = env("REVIEWBOT_GITHUB_OAUTH_CLIENT_SECRET", "") or ""
+GITHUB_LOGIN_ENABLED = env_bool("REVIEWBOT_GITHUB_LOGIN", True)
+# Without an invite, GitHub users can only sign in to an existing account (matched by verified email),
+# unless self-signup is allowed. Signup can be limited to verified email domains (comma-separated).
+ALLOW_SIGNUP = env_bool("REVIEWBOT_ALLOW_SIGNUP", False)
+SIGNUP_EMAIL_DOMAINS = [d.lower().lstrip("@") for d in env_list("REVIEWBOT_SIGNUP_EMAIL_DOMAINS", "")]
+SIGNUP_ROLE = env("REVIEWBOT_SIGNUP_ROLE", "viewer") or "viewer"
+
+# --- Email (optional; used to send invites) -----------------------------------------------------
+EMAIL_HOST = env("REVIEWBOT_EMAIL_HOST", "") or ""
+EMAIL_PORT = env_int("REVIEWBOT_EMAIL_PORT", 587)
+EMAIL_HOST_USER = env("REVIEWBOT_EMAIL_USER", "") or ""
+EMAIL_HOST_PASSWORD = env("REVIEWBOT_EMAIL_PASSWORD", "") or ""
+EMAIL_USE_TLS = env_bool("REVIEWBOT_EMAIL_USE_TLS", True)
+DEFAULT_FROM_EMAIL = env("REVIEWBOT_EMAIL_FROM", "reviewbot@localhost") or "reviewbot@localhost"
+if TESTING:
+    EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+EMAIL_ENABLED = bool(EMAIL_HOST) or TESTING
 LLM_TIMEOUT_SECONDS = env_int("REVIEWBOT_LLM_TIMEOUT_SECONDS", 180)
 LLM_MAX_RETRIES = env_int("REVIEWBOT_LLM_MAX_RETRIES", 4)
 GIT_TIMEOUT_SECONDS = env_int("REVIEWBOT_GIT_TIMEOUT_SECONDS", 30)

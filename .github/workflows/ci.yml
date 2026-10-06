@@ -71,6 +71,26 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  helm:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin kubeconform
+      - name: Lint and validate
+        working-directory: deploy/helm/reviewbot
+        run: |
+          for values in ci/*.yaml; do
+            helm lint . --strict -f "$values"
+            helm template ci . -f "$values" | kubeconform -strict -summary -kubernetes-version 1.29.0 -
+          done
+
   e2e:
     name: End-to-end (Docker Compose)
     runs-on: ubuntu-latest

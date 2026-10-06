@@ -56,6 +56,17 @@ names the stage that broke.
 The Celery task retries on Git rate limits (`RetryLater`). A lease prevents two workers from processing the
 same run, and a run that already has a posted review is never posted twice.
 
+## Users and access
+
+- One instance serves one organization: many GitHub installations and repositories, and many users.
+- Users have one of three roles (admin, reviewer, viewer), enforced by DRF permission classes in
+  `apps/accounts/permissions.py`. Reviewers may change only the review-content repository settings
+  (`REVIEWER_SETTINGS_FIELDS`).
+- People join through single-use invites (only a SHA-256 of the token is stored) or "Sign in with GitHub",
+  which uses the GitHub App's OAuth client. Sessions are Django sessions in PostgreSQL.
+- `apps/audit` records security-relevant actions in an append-only table: the model refuses updates and a
+  PostgreSQL trigger rejects `UPDATE`. A daily beat task applies retention.
+
 ## Security notes
 
 - The LLM has no tools and no network access through us. Its output is schema-validated, `@mentions` are

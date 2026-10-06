@@ -45,3 +45,12 @@ class SetupThrottle(SimpleRateThrottle):
 
     def get_cache_key(self, request: Request, view: Any) -> str:
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class InviteThrottle(SimpleRateThrottle):
+    """Limits invite lookups and acceptance per client IP (tokens are unguessable; this stops scanning)."""
+
+    scope = "invite"
+
+    def get_cache_key(self, request: Request, view: Any) -> str:
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}

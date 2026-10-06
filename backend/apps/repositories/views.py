@@ -9,14 +9,15 @@ from django.http import HttpResponseRedirect
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
-from apps.accounts.permissions import IsAdmin, IsAdminOrReadOnly
+from apps.accounts.permissions import IsAdmin, IsAdminOrReadOnly, IsReviewerOrReadOnly
+from apps.audit.services import diff, record
 from apps.core.exceptions import Conflict
 from apps.core.logging import get_logger
 from apps.git_providers.base import GitProviderError
@@ -25,6 +26,7 @@ from apps.git_providers.github.client import exchange_manifest_code
 from apps.repositories import services
 from apps.repositories.models import GitProviderConnection, Repository
 from apps.repositories.serializers import (
+    REVIEWER_SETTINGS_FIELDS,
     InstallationSerializer,
     RepositorySerializer,
     RepositorySettingsSerializer,
@@ -76,6 +78,7 @@ class GitHubIntegrationView(APIView):
         if connection is None:
             raise NotFound("GitHub is not connected.")
         connection.delete()
+        record("integration.github_disconnected", request=request, app_slug=connection.app_slug)
         logger.warning("github.disconnected", user_id=request.user.pk)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -85,6 +88,9 @@ class ManualGitHubAppSerializer(serializers.Serializer[Any]):
     app_slug = serializers.SlugField(max_length=200)
     private_key = serializers.CharField(max_length=10_000, trim_whitespace=True)
     webhook_secret = serializers.CharField(max_length=500)
+    # Optional: enables "Sign in with GitHub" through this App.
+    client_id = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    client_secret = serializers.CharField(max_length=500, required=False, allow_blank=True)
 
     def validate_private_key(self, value: str) -> str:
         if "PRIVATE KEY-----" not in value:
@@ -114,13 +120,19 @@ class GitHubManualConfigView(APIView):
             app_slug=data["app_slug"],
             app_name=data["app_slug"],
             app_html_url=f"{settings.GITHUB_URL}/apps/{data['app_slug']}",
+            client_id=data.get("client_id", ""),
         )
-        connection.set_secrets(private_key=data["private_key"], webhook_secret=data["webhook_secret"])
+        connection.set_secrets(
+            private_key=data["private_key"],
+            webhook_secret=data["webhook_secret"],
+            client_secret=data.get("client_secret", ""),
+        )
         try:
             github_app.app_client(connection).list_installations()
         except GitProviderError as exc:
             raise ValidationError(f"GitHub rejected these credentials: {exc}") from exc
         connection.save()
+        record("integration.github_connected", request=request, app_slug=connection.app_slug, method="manual")
         return Response(status=status.HTTP_201_CREATED)
 
 
@@ -193,6 +205,9 @@ class GitHubCallbackView(APIView):
             connection.save()
         except IntegrityError:
             return _dashboard_redirect("/settings/integrations?github=already_connected")
+        record(
+            "integration.github_connected", request=request, app_slug=connection.app_slug, method="manifest"
+        )
         logger.info("github.app_created", app_id=connection.app_id, slug=connection.app_slug)
         return _dashboard_redirect("/settings/integrations?github=connected")
 
@@ -228,6 +243,7 @@ class GitHubSyncView(APIView):
             result = services.sync_github(connection)
         except GitProviderError as exc:
             raise ValidationError(f"Sync failed: {exc}") from exc
+        record("integration.github_synced", request=request, result=result)
         return Response(result)
 
 
@@ -257,8 +273,18 @@ class RepositoryViewSet(
             qs = qs.filter(Q(full_name__icontains=params["q"]))
         return qs.order_by("-enabled", "full_name")
 
+    def get_permissions(self) -> Any:
+        # Reviewers may edit a repository's review rules; everything else on a repository is admin-only.
+        if self.action == "repo_settings":
+            return [IsReviewerOrReadOnly()]
+        return super().get_permissions()
+
     def perform_update(self, serializer: Any) -> None:
+        was_enabled = serializer.instance.enabled
         repository = serializer.save()
+        if repository.enabled != was_enabled:
+            action_name = "repository.enabled" if repository.enabled else "repository.disabled"
+            record(action_name, request=self.request, target=repository)
         logger.info("repository.updated", repository_id=repository.pk, enabled=repository.enabled)
 
     @extend_schema(request=RepositorySettingsSerializer, responses={200: RepositorySettingsSerializer})
@@ -268,8 +294,17 @@ class RepositoryViewSet(
         repo_settings = services.ensure_settings(repository)
         if request.method == "GET":
             return Response(RepositorySettingsSerializer(repo_settings).data)
+        user = cast(User, request.user)
+        if not user.is_admin and isinstance(request.data, dict):
+            restricted = sorted(set(request.data) - REVIEWER_SETTINGS_FIELDS)
+            if restricted:
+                raise PermissionDenied(f"Only admins can change: {', '.join(restricted)}.")
+        before = repo_settings.snapshot()
         serializer = RepositorySettingsSerializer(repo_settings, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
-            serializer.save(updated_by=cast(User, request.user))
+            serializer.save(updated_by=user)
+            changes = diff(before, repo_settings.snapshot())
+            if changes:
+                record("repository.settings_changed", request=request, target=repository, changes=changes)
         return Response(serializer.data)

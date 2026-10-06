@@ -29,6 +29,19 @@ All notable changes to this project are documented here. The format follows
 - **Test suggestions (RE-13):** when source changes come without tests, the model is asked for a test finding
   (capped at medium). Can be turned off per repository.
 - **Run comparison (PR-04):** `GET /api/v1/reviews/{id}/compare?with={id}` lists new and resolved findings.
+- **Roles and invites (ADM-02):** admin, reviewer, and viewer roles enforced on every endpoint. Admins invite people
+  by single-use link (emailed when SMTP is configured), change roles, and deactivate users. The last admin cannot
+  be removed. Reviewers can re-run reviews, triage findings, and edit review rules. New **Team** and **Account**
+  pages.
+- **Sign in with GitHub (ADM-03):** uses the GitHub App's OAuth client. Accounts are matched by GitHub ID or a
+  verified email, or created from an invite. Optional self-signup can be limited to email domains. The App
+  manifest now requests the `emails: read` account permission and an OAuth callback URL.
+- **Audit log (ADM-04):** an append-only record of sign-ins, key changes (including the new
+  `POST /llm-credentials/{id}/rotate`), settings diffs, user and integration changes, review requests, and
+  finding triage. Secrets are redacted, a database trigger blocks updates, and retention defaults to 365 days.
+  New **Audit log** page.
+- **Kubernetes:** Helm chart (`deploy/helm/reviewbot`) with a migration Job, HPAs, PDBs, non-root read-only pods,
+  and an ingress. See `docs/kubernetes.md`.
 - **PR filters (PR-05):** filter by minimum severity and risk bucket; search titles, authors, and finding titles.
 
 ### Fixed

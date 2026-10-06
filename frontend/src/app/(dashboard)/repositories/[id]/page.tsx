@@ -18,8 +18,9 @@ import {
   errorMessage,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
+import { useRole } from "@/lib/hooks";
 import type { FeedbackStat, LLMCredential, Repository, RepositorySettings, ReviewProfile, ReviewRule } from "@/lib/types";
-import { SEVERITIES } from "@/lib/types";
+import { REVIEWER_SETTINGS_FIELDS, SEVERITIES } from "@/lib/types";
 
 type FormState = Omit<
   RepositorySettings,
@@ -77,7 +78,12 @@ export default function RepositorySettingsPage() {
 
 function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; initial: RepositorySettings }) {
   const queryClient = useQueryClient();
-  const credentials = useQuery({ queryKey: ["llm-credentials"], queryFn: () => api<LLMCredential[]>("/llm-credentials") });
+  const { isAdmin, canReview } = useRole();
+  const credentials = useQuery({
+    queryKey: ["llm-credentials"],
+    queryFn: () => api<LLMCredential[]>("/llm-credentials"),
+    enabled: isAdmin,
+  });
   const profiles = useQuery({ queryKey: ["review-profiles"], queryFn: () => api<ReviewProfile[]>("/review-profiles") });
   const [form, setForm] = useState<FormState>(() => toForm(initial));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -86,10 +92,14 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
   const save = useMutation({
     mutationFn: (state: FormState) => {
       const { ignore_text, branch_text, ...rest } = state;
-      return api<RepositorySettings>(`/repositories/${id}/settings`, {
-        method: "PATCH",
-        body: { ...rest, ignore_patterns: lines(ignore_text), base_branch_patterns: lines(branch_text) },
-      });
+      const body: Record<string, unknown> = {
+        ...rest,
+        ignore_patterns: lines(ignore_text),
+        base_branch_patterns: lines(branch_text),
+      };
+      // Reviewers may only change review-content settings; the API rejects anything else.
+      const allowed = isAdmin ? body : Object.fromEntries(Object.entries(body).filter(([k]) => REVIEWER_SETTINGS_FIELDS.includes(k)));
+      return api<RepositorySettings>(`/repositories/${id}/settings`, { method: "PATCH", body: allowed });
     },
     onSuccess: (data) => {
       setForm(toForm(data));
@@ -111,6 +121,10 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
   };
   const selectedCredential = credentials.data?.find((c) => c.id === form.credential);
   const usable = (credentials.data ?? []).filter((c) => c.status === "valid");
+  if (!isAdmin && form.credential !== null && !usable.some((c) => c.id === form.credential)) {
+    // Non-admins cannot list keys; show the configured key by name.
+    usable.push({ id: form.credential, name: repo.credential_name ?? "Configured key", provider: "" } as LLMCredential);
+  }
 
   return (
     <>
@@ -133,64 +147,65 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
       >
         {save.error && <Alert>{errorMessage(save.error)}</Alert>}
         {saved && <Alert kind="success">Settings saved. They apply to the next review.</Alert>}
+        {!canReview && <Alert kind="info">You have read-only access. Ask an admin for the reviewer role to edit review rules.</Alert>}
+        {canReview && !isAdmin && (
+          <Alert kind="info">
+            As a reviewer you can edit the profile, what gets posted, rules, instructions and ignored files. Keys,
+            triggers, checks, branches and limits are admin-only.
+          </Alert>
+        )}
+        <fieldset disabled={!canReview} className="space-y-6">
 
-        <Card title="Model">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="LLM key" error={errors.credential}>
-              <Select
-                value={form.credential ?? ""}
-                onChange={(e) => update("credential", e.target.value ? Number(e.target.value) : null)}
+        <fieldset disabled={!isAdmin}>
+          <Card title="Model">
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="LLM key" error={errors.credential}>
+                <Select
+                  value={form.credential ?? ""}
+                  onChange={(e) => update("credential", e.target.value ? Number(e.target.value) : null)}
+                >
+                  <option value="">— none —</option>
+                  {usable.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.provider ? `${c.name} (${c.provider})` : c.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field
+                label="Model override"
+                hint={`Leave empty to use the key's default${selectedCredential ? ` (${selectedCredential.default_model})` : ""}.`}
+                error={errors.model}
               >
-                <option value="">— none —</option>
-                {usable.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.provider})
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field
-              label="Model override"
-              hint={`Leave empty to use the key's default${selectedCredential ? ` (${selectedCredential.default_model})` : ""}.`}
-              error={errors.model}
-            >
-              <Input value={form.model} onChange={(e) => update("model", e.target.value)} placeholder={selectedCredential?.default_model} />
-            </Field>
-          </div>
-          {usable.length === 0 && (
-            <p className="mt-3 text-sm text-amber-700">
-              No valid LLM keys. <TextLink href="/settings/keys">Add one first.</TextLink>
-            </p>
-          )}
-        </Card>
+                <Input value={form.model} onChange={(e) => update("model", e.target.value)} placeholder={selectedCredential?.default_model} />
+              </Field>
+            </div>
+            {isAdmin && usable.length === 0 && (
+              <p className="mt-3 text-sm text-amber-700">
+                No valid LLM keys. <TextLink href="/settings/keys">Add one first.</TextLink>
+              </p>
+            )}
+          </Card>
+        </fieldset>
 
-        <Card title="Triggers">
-          <div className="space-y-3">
-            <Checkbox
-              label="Review automatically when a pull request is opened, reopened, or marked ready"
-              checked={form.auto_review}
-              onChange={(e) => update("auto_review", e.target.checked)}
-            />
-            <Checkbox
-              label="Review new commits pushed to open pull requests"
-              hint="Only the changes since the last reviewed commit are sent to the LLM. Bursts of pushes are debounced."
-              checked={form.review_on_push}
-              onChange={(e) => update("review_on_push", e.target.checked)}
-            />
-            <Checkbox
-              label="Ask for tests when source code changes without tests"
-              hint="Adds a test-coverage request to the prompt; test findings are capped at medium severity."
-              checked={form.suggest_tests}
-              onChange={(e) => update("suggest_tests", e.target.checked)}
-            />
-            <Checkbox label="Also review draft pull requests" checked={form.review_drafts} onChange={(e) => update("review_drafts", e.target.checked)} />
-            <Checkbox
-              label="Post a summary even when nothing is found"
-              checked={form.post_when_no_findings}
-              onChange={(e) => update("post_when_no_findings", e.target.checked)}
-            />
-          </div>
-        </Card>
+        <fieldset disabled={!isAdmin}>
+          <Card title="Triggers">
+            <div className="space-y-3">
+              <Checkbox
+                label="Review automatically when a pull request is opened, reopened, or marked ready"
+                checked={form.auto_review}
+                onChange={(e) => update("auto_review", e.target.checked)}
+              />
+              <Checkbox
+                label="Review new commits pushed to open pull requests"
+                hint="Only the changes since the last reviewed commit are sent to the LLM. Bursts of pushes are debounced."
+                checked={form.review_on_push}
+                onChange={(e) => update("review_on_push", e.target.checked)}
+              />
+              <Checkbox label="Also review draft pull requests" checked={form.review_drafts} onChange={(e) => update("review_drafts", e.target.checked)} />
+            </div>
+          </Card>
+        </fieldset>
 
         <Card title="Review profile">
           <div className="grid gap-3 md:grid-cols-4">
@@ -221,34 +236,36 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
           </p>
         </Card>
 
-        <Card title="GitHub check">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Checkbox
-              label="Report a “Reviewbot” check run on each reviewed commit"
-              hint="Requires the Checks permission on the GitHub App."
-              checked={form.check_runs}
-              onChange={(e) => update("check_runs", e.target.checked)}
-            />
-            <Field
-              label="Fail the check when a finding is at least"
-              hint="Use with branch protection to block merging. A failed review never fails the check."
-              error={errors.gate_severity}
-            >
-              <Select
-                value={form.gate_severity}
-                disabled={!form.check_runs}
-                onChange={(e) => update("gate_severity", e.target.value as FormState["gate_severity"])}
+        <fieldset disabled={!isAdmin}>
+          <Card title="GitHub check">
+            <div className="grid gap-4 md:grid-cols-2">
+              <Checkbox
+                label="Report a “Reviewbot” check run on each reviewed commit"
+                hint="Requires the Checks permission on the GitHub App."
+                checked={form.check_runs}
+                onChange={(e) => update("check_runs", e.target.checked)}
+              />
+              <Field
+                label="Fail the check when a finding is at least"
+                hint="Use with branch protection to block merging. A failed review never fails the check."
+                error={errors.gate_severity}
               >
-                <option value="">Never fail (neutral)</option>
-                {SEVERITIES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-        </Card>
+                <Select
+                  value={form.gate_severity}
+                  disabled={!form.check_runs}
+                  onChange={(e) => update("gate_severity", e.target.value as FormState["gate_severity"])}
+                >
+                  <option value="">Never fail (neutral)</option>
+                  {SEVERITIES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+          </Card>
+        </fieldset>
 
         <Card title="What gets posted">
           <div className="grid gap-4 md:grid-cols-3">
@@ -268,17 +285,32 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
               <Input type="number" min={0} max={100} value={form.max_inline_comments} onChange={(e) => update("max_inline_comments", Number(e.target.value))} />
             </Field>
           </div>
+          <div className="mt-4 space-y-3">
+            <Checkbox
+              label="Ask for tests when source code changes without tests"
+              hint="Adds a test-coverage request to the prompt; test findings are capped at medium severity."
+              checked={form.suggest_tests}
+              onChange={(e) => update("suggest_tests", e.target.checked)}
+            />
+            <Checkbox
+              label="Post a summary even when nothing is found"
+              checked={form.post_when_no_findings}
+              onChange={(e) => update("post_when_no_findings", e.target.checked)}
+            />
+          </div>
         </Card>
 
-        <Card title="Branches">
-          <Field
-            label="Only auto-review pull requests into these base branches"
-            hint="One glob per line, e.g. main or release/*. Leave empty to review pull requests into any branch. Comment commands always work."
-            error={errors.base_branch_patterns}
-          >
-            <Textarea rows={3} value={form.branch_text} onChange={(e) => update("branch_text", e.target.value)} placeholder={"main\nrelease/*"} />
-          </Field>
-        </Card>
+        <fieldset disabled={!isAdmin}>
+          <Card title="Branches">
+            <Field
+              label="Only auto-review pull requests into these base branches"
+              hint="One glob per line, e.g. main or release/*. Leave empty to review pull requests into any branch. Comment commands always work."
+              error={errors.base_branch_patterns}
+            >
+              <Textarea rows={3} value={form.branch_text} onChange={(e) => update("branch_text", e.target.value)} placeholder={"main\nrelease/*"} />
+            </Field>
+          </Card>
+        </fieldset>
 
         <Card title="Rules">
           <RulesEditor rules={form.rules} error={errors.rules} onChange={(rules) => update("rules", rules)} />
@@ -314,31 +346,36 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
           </div>
         </Card>
 
-        <Card title="Limits (cost guard)">
-          <div className="grid gap-4 md:grid-cols-4">
-            <Field label="Max changed lines" error={errors.max_changed_lines}>
-              <Input type="number" min={1} value={form.max_changed_lines} onChange={(e) => update("max_changed_lines", Number(e.target.value))} />
-            </Field>
-            <Field label="Max files" error={errors.max_files}>
-              <Input type="number" min={1} max={3000} value={form.max_files} onChange={(e) => update("max_files", Number(e.target.value))} />
-            </Field>
-            <Field label="Max input tokens per review" error={errors.max_input_tokens}>
-              <Input type="number" min={1000} value={form.max_input_tokens} onChange={(e) => update("max_input_tokens", Number(e.target.value))} />
-            </Field>
-            <Field label="Tokens per LLM request" error={errors.chunk_tokens}>
-              <Input type="number" min={1000} value={form.chunk_tokens} onChange={(e) => update("chunk_tokens", Number(e.target.value))} />
-            </Field>
-          </div>
-          <p className="mt-3 text-xs text-slate-500">
-            Pull requests above these limits are skipped with an explanatory comment and make no LLM calls.
-          </p>
-        </Card>
+        <fieldset disabled={!isAdmin}>
+          <Card title="Limits (cost guard)">
+            <div className="grid gap-4 md:grid-cols-4">
+              <Field label="Max changed lines" error={errors.max_changed_lines}>
+                <Input type="number" min={1} value={form.max_changed_lines} onChange={(e) => update("max_changed_lines", Number(e.target.value))} />
+              </Field>
+              <Field label="Max files" error={errors.max_files}>
+                <Input type="number" min={1} max={3000} value={form.max_files} onChange={(e) => update("max_files", Number(e.target.value))} />
+              </Field>
+              <Field label="Max input tokens per review" error={errors.max_input_tokens}>
+                <Input type="number" min={1000} value={form.max_input_tokens} onChange={(e) => update("max_input_tokens", Number(e.target.value))} />
+              </Field>
+              <Field label="Tokens per LLM request" error={errors.chunk_tokens}>
+                <Input type="number" min={1000} value={form.chunk_tokens} onChange={(e) => update("chunk_tokens", Number(e.target.value))} />
+              </Field>
+            </div>
+            <p className="mt-3 text-xs text-slate-500">
+              Pull requests above these limits are skipped with an explanatory comment and make no LLM calls.
+            </p>
+          </Card>
+        </fieldset>
 
-        <div className="flex gap-2">
-          <Button type="submit" loading={save.isPending}>
-            Save settings
-          </Button>
-        </div>
+        {canReview && (
+          <div className="flex gap-2">
+            <Button type="submit" loading={save.isPending}>
+              Save settings
+            </Button>
+          </div>
+        )}
+        </fieldset>
       </form>
       <div className="mt-8">
         <FeedbackStats repositoryId={id} />

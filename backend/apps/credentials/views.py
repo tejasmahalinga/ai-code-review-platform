@@ -5,7 +5,7 @@ from typing import Any, cast
 from django.db.models import QuerySet
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
-from rest_framework import mixins, status, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import User
 from apps.accounts.permissions import IsAdmin
+from apps.audit.services import diff, record
 from apps.core.logging import get_logger
 from apps.credentials.models import LLMCredential
 from apps.credentials.serializers import LLMCredentialSerializer
@@ -23,6 +24,18 @@ from apps.llm import registry
 from apps.llm.base import LLMError
 
 logger = get_logger(__name__)
+
+AUDITED_FIELDS = ("name", "default_model", "base_url", "monthly_budget_usd")
+
+
+class RotateSerializer(serializers.Serializer[Any]):
+    api_key = serializers.CharField(max_length=500, trim_whitespace=True)
+
+
+def _audited(credential: LLMCredential) -> dict[str, Any]:
+    return {
+        f: str(getattr(credential, f)) if getattr(credential, f) is not None else None for f in AUDITED_FIELDS
+    }
 
 
 class LLMCredentialViewSet(
@@ -57,6 +70,7 @@ class LLMCredentialViewSet(
         credential.set_secret(api_key)
         credential.save()
         serializer.instance = credential
+        record("credential.created", request=self.request, target=credential, model=credential.default_model)
         logger.info("credential.created", credential_id=credential.pk, provider=credential.provider)
 
     def perform_update(self, serializer: Any) -> None:
@@ -67,12 +81,16 @@ class LLMCredentialViewSet(
             k in serializer.validated_data and serializer.validated_data[k] != getattr(instance, k)
             for k in ("default_model", "base_url")
         )
+        before = _audited(instance)
         credential = serializer.save()
         if changed_target:
             revalidate(credential)
+        if changes := diff(before, _audited(credential)):
+            record("credential.updated", request=self.request, target=credential, changes=changes)
 
     def perform_destroy(self, instance: LLMCredential) -> None:
         instance.revoke()
+        record("credential.revoked", request=self.request, target=instance)
         logger.info("credential.revoked", credential_id=instance.pk)
 
     @extend_schema(request=None, responses={200: LLMCredentialSerializer})
@@ -83,6 +101,33 @@ class LLMCredentialViewSet(
             raise ValidationError("Revoked credentials cannot be validated.")
         revalidate(credential)
         return Response(self.get_serializer(credential).data, status=status.HTTP_200_OK)
+
+    @extend_schema(request=RotateSerializer, responses={200: LLMCredentialSerializer})
+    @action(detail=True, methods=["post"])
+    def rotate(self, request: Request, pk: str | None = None) -> Response:
+        """Replaces the stored API key after validating the new one; repositories keep this credential."""
+        credential = self.get_object()
+        if credential.status == LLMCredential.Status.REVOKED:
+            raise ValidationError("Revoked credentials cannot be rotated.")
+        body = RotateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        api_key = body.validated_data["api_key"]
+        try:
+            check_credential(
+                credential.provider, api_key, credential.default_model, credential.base_url or None
+            )
+        except LLMError as exc:
+            raise ValidationError({"api_key": [f"Validation failed: {exc}"]}) from exc
+        credential.set_secret(api_key)
+        credential.status = LLMCredential.Status.VALID
+        credential.status_message = ""
+        credential.last_validated_at = timezone.now()
+        credential.save(
+            update_fields=["encrypted_secret", "last4", "status", "status_message", "last_validated_at"]
+        )
+        record("credential.rotated", request=request, target=credential)
+        logger.info("credential.rotated", credential_id=credential.pk)
+        return Response(self.get_serializer(credential).data)
 
 
 class LLMProvidersView(APIView):

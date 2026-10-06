@@ -4,6 +4,7 @@
 Serves one installation (id 77) with one repository (acme/demo) and one pull request (#1).
 Reviews posted by Reviewbot are recorded and exposed at GET /_posted, check runs at GET /_checks.
 POST /_push simulates pushing a new commit (head aaaa... -> cccc...) that adds app/util.py.
+Also answers the OAuth web flow for "Sign in with GitHub" as the user dev-octo (dev@example.com).
 """
 
 from __future__ import annotations
@@ -59,6 +60,8 @@ CONFIG_FILE = (
 REPO = {"id": 4242, "name": "demo", "full_name": "acme/demo", "private": True, "default_branch": "main",
         "html_url": "https://github.example/acme/demo"}
 POSTED: list[dict] = []
+OAUTH_USER = {"id": 9001, "login": "dev-octo", "name": "Dev Octo"}
+OAUTH_EMAILS = [{"email": "dev@example.com", "verified": True, "primary": True}]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -87,6 +90,10 @@ class Handler(BaseHTTPRequestHandler):
         first_page = page is None or page.group(1) == "1"
         if path == "/_posted":
             return self._send(200, POSTED)
+        if path == "/user":
+            return self._send(200, OAUTH_USER)
+        if path == "/user/emails":
+            return self._send(200, OAUTH_EMAILS)
         if path == "/_checks":
             return self._send(200, CHECKS)
         if path == "/repos/acme/demo/contents/.reviewbot.yml":
@@ -118,7 +125,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
-        data = json.loads(self.rfile.read(length) or b"{}")
+        body = self.rfile.read(length)
+        if self.path == "/login/oauth/access_token":  # form-encoded OAuth code exchange
+            return self._send(200, {"access_token": "ghu_fakeusertoken000000000000", "token_type": "bearer"})
+        data = json.loads(body or b"{}")
         if self.path == "/_push":
             PR["head"]["sha"] = NEW_HEAD
             if UTIL_FILE not in FILES:

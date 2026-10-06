@@ -1,20 +1,43 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Alert, Button, Card, Field, Input, errorMessage } from "@/components/ui";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { Alert, Button, Card, Field, Input, Spinner, buttonClass, errorMessage } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useSetupStatus } from "@/lib/hooks";
 import type { User } from "@/lib/types";
 
+const GITHUB_ERRORS: Record<string, string> = {
+  no_account: "No Reviewbot account matches that GitHub user. Ask an admin for an invite.",
+  account_disabled: "This account is deactivated. Contact an admin.",
+  github_mismatch: "That email belongs to an account linked to a different GitHub user.",
+  invite_invalid: "This invitation is no longer valid.",
+  github_denied: "GitHub sign-in was cancelled.",
+  github_state: "The GitHub sign-in expired. Try again.",
+  github_failed: "GitHub sign-in failed. Try again.",
+  github_unavailable: "Sign in with GitHub is not configured.",
+};
+
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<Spinner />}>
+      <Login />
+    </Suspense>
+  );
+}
+
+function Login() {
   const router = useRouter();
+  const params = useSearchParams();
   const queryClient = useQueryClient();
   const setup = useSetupStatus();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => {
+    const code = params.get("error");
+    return code ? (GITHUB_ERRORS[code] ?? "Sign-in failed.") : null;
+  });
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -56,6 +79,14 @@ export default function LoginPage() {
           Sign in
         </Button>
       </form>
+      {setup.data?.github_login && (
+        <>
+          <p className="my-4 text-center text-xs uppercase tracking-wide text-slate-400">or</p>
+          <a className={buttonClass("secondary", "w-full")} href="/api/v1/auth/github/start">
+            Sign in with GitHub
+          </a>
+        </>
+      )}
     </Card>
   );
 }

@@ -21,6 +21,7 @@ import {
   formatDate,
 } from "@/components/ui";
 import { api } from "@/lib/api";
+import { useRole } from "@/lib/hooks";
 import type { DismissReason, Finding, FindingState, ReviewRun, ReviewRunSummary, RunComparison } from "@/lib/types";
 import { SEVERITIES } from "@/lib/types";
 
@@ -51,6 +52,7 @@ export default function ReviewPage() {
     enabled: Boolean(prId),
     refetchInterval: review.data && ACTIVE.has(review.data.status) ? 5_000 : false,
   });
+  const { canReview } = useRole();
   const rerun = useMutation({
     mutationFn: () => api<ReviewRunSummary>(`/pull-requests/${prId}/reviews`, { method: "POST" }),
     onSuccess: (run) => {
@@ -83,9 +85,11 @@ export default function ReviewPage() {
           </>
         }
         actions={
-          <Button onClick={() => rerun.mutate()} loading={rerun.isPending} disabled={active}>
-            Re-run review
-          </Button>
+          canReview && (
+            <Button onClick={() => rerun.mutate()} loading={rerun.isPending} disabled={active}>
+              Re-run review
+            </Button>
+          )
         }
       />
       {rerun.error && (
@@ -267,6 +271,7 @@ const DISMISS_REASONS: { value: DismissReason; label: string }[] = [
 
 function FindingItem({ finding: f, reviewId }: { finding: Finding; reviewId: string }) {
   const queryClient = useQueryClient();
+  const { canReview } = useRole();
   const [dismissing, setDismissing] = useState(false);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["review", reviewId] });
   const setState = useMutation({
@@ -311,12 +316,13 @@ function FindingItem({ finding: f, reviewId }: { finding: Finding; reviewId: str
         {f.state === "dismissed" && (
           <Badge>dismissed{f.dismiss_reason ? `: ${f.dismiss_reason.replace("_", " ")}` : ""}</Badge>
         )}
-        {f.state !== "accepted" && (
+        {canReview && f.state !== "accepted" && (
           <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => setState.mutate({ state: "accepted" })}>
             Accept
           </Button>
         )}
-        {f.state !== "dismissed" &&
+        {canReview &&
+          f.state !== "dismissed" &&
           (dismissing ? (
             <span className="flex flex-wrap items-center gap-1">
               {DISMISS_REASONS.map((r) => (
@@ -335,7 +341,7 @@ function FindingItem({ finding: f, reviewId }: { finding: Finding; reviewId: str
               Dismiss…
             </Button>
           ))}
-        {f.state !== "open" && (
+        {canReview && f.state !== "open" && (
           <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => setState.mutate({ state: "open" })}>
             Reopen
           </Button>
@@ -345,6 +351,7 @@ function FindingItem({ finding: f, reviewId }: { finding: Finding; reviewId: str
             variant={f.votes.mine === "up" ? "primary" : "ghost"}
             className="px-2 py-1 text-xs"
             aria-label="Helpful"
+            disabled={!canReview}
             onClick={() => vote.mutate("up")}
           >
             👍 {f.votes.up}
@@ -353,6 +360,7 @@ function FindingItem({ finding: f, reviewId }: { finding: Finding; reviewId: str
             variant={f.votes.mine === "down" ? "primary" : "ghost"}
             className="px-2 py-1 text-xs"
             aria-label="Not helpful"
+            disabled={!canReview}
             onClick={() => vote.mutate("down")}
           >
             👎 {f.votes.down}

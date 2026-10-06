@@ -39,6 +39,10 @@ class PullRequest(models.Model):
     def __str__(self) -> str:
         return f"{self.repository_id}#{self.number}"
 
+    @property
+    def audit_label(self) -> str:
+        return f"{self.repository.full_name}#{self.number}"
+
 
 class ReviewRun(models.Model):
     class Trigger(models.TextChoices):
@@ -186,6 +190,10 @@ class Finding(models.Model):
 
     def __str__(self) -> str:
         return f"{self.severity}:{self.path}:{self.line_start}"
+
+    @property
+    def audit_label(self) -> str:
+        return f"{self.title} ({self.path})"
 
 
 class FindingFeedback(models.Model):

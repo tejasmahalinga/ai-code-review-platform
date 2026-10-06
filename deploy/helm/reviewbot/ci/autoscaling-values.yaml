@@ -1,0 +1,12 @@
+publicUrl: https://reviewbot.example.com/
+ingress:
+  enabled: false
+secrets:
+  existingSecret: reviewbot-secrets
+service:
+  apiAlias: false
+api: {autoscaling: {enabled: true}}
+worker: {autoscaling: {enabled: true}}
+web: {autoscaling: {enabled: true}}
+migrations: {enabled: false}
+nodeSelector: {kubernetes.io/arch: amd64}

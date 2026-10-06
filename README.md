@@ -9,19 +9,21 @@ A web dashboard manages API keys, repositories, per-repo review settings, and th
 > **Status:** v0.1 (MVP) feature-complete, pre-release. See [`docs/FEATURE_PLAN.md`](docs/FEATURE_PLAN.md) for
 > scope, priorities, and the roadmap. "Reviewbot" is a working name.
 
-## Features (v0.1 / MVP)
+## Features
 
-- **GitHub App** created in one click through GitHub's manifest flow, with least-privilege permissions
-  (`pull_requests: write`, `contents: read`, `metadata: read`).
-- **Bring your own key**: OpenAI, Anthropic, and OpenAI-compatible providers. Keys are encrypted at rest and never
-  returned by the API.
-- **Structured findings** with category (bug, security, performance, maintainability, style, test) and severity
-  (critical → info), posted as one GitHub review with inline comments and a summary.
+- **GitHub App** created in one click through GitHub's manifest flow, with least-privilege permissions.
+- **Bring your own key**: OpenAI, Anthropic, and OpenAI-compatible providers (e.g. Ollama). Keys are encrypted at
+  rest, never returned by the API, and can be rotated in place.
+- **Structured findings** with category and severity, posted as one GitHub review with inline comments, a summary,
+  a deterministic risk score, and an optional check run that can gate merges.
+- **Incremental reviews** of new pushes, **review profiles** (strict, balanced, lenient, security), team **rules**,
+  a per-repo **`.reviewbot.yml`**, and `/reviewbot` **comment commands**.
 - **Large-PR safety**: token-budgeted chunking plus hard size limits, so a 20k-line PR cannot run up a surprise bill.
-- **Ignore patterns** (gitignore syntax) with sensible defaults such as lockfiles, vendored, and generated code.
-- **Custom per-repo instructions** appended to the review prompt.
-- **De-duplication**: re-running a review never re-posts a comment it already made.
-- **Dashboard**: unified PR list, review detail (posted vs. suppressed findings and why), manual re-run, and token usage.
+- **Feedback loop**: accept or dismiss findings and vote on them; dismissed findings are not re-posted.
+- **Teams**: admin, reviewer, and viewer roles; invites; sign in with GitHub; an append-only audit log.
+  Developers need no account, since everything they see happens on the pull request.
+- **Dashboard**: PR list with risk and severity filters, review detail, run comparison, re-runs, and usage.
+- **Runs anywhere**: Docker Compose on a VM, or the Helm chart on Kubernetes with managed PostgreSQL and Redis.
 
 ## Architecture
 
@@ -90,7 +92,8 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 ## Documentation
 
 - [Feature plan & roadmap](docs/FEATURE_PLAN.md)
-- [Self-hosting guide](docs/self-hosting.md)
+- [Self-hosting guide](docs/self-hosting.md) (Docker Compose)
+- [Deploying on Kubernetes](docs/kubernetes.md) (Helm)
 - [Connecting GitHub](docs/github-app.md)
 - [Configuration reference](docs/configuration.md)
 - [Architecture](docs/architecture.md)

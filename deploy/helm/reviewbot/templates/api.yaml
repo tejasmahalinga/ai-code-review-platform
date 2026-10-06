@@ -1,0 +1,103 @@
+{{- $fullname := include "reviewbot.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-api
+  labels:
+    {{- include "reviewbot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  {{- if not .Values.api.autoscaling.enabled }}
+  replicas: {{ .Values.api.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "reviewbot.selectorLabels" (list . "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "reviewbot.selectorLabels" (list . "api") | nindent 8 }}
+      annotations:
+        {{- include "reviewbot.configChecksums" . | nindent 8 }}
+        {{- with .Values.api.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "reviewbot.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with (include "reviewbot.podScheduling" . | trim) }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      {{- with (include "reviewbot.waitForMigrations" . | trim) }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      containers:
+        - name: api
+          image: {{ include "reviewbot.apiImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["api"]
+          {{- include "reviewbot.backendEnv" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8000
+          # Django only answers allowed hosts; probes connect by pod IP, so they send Host: localhost.
+          startupProbe:
+            httpGet: {path: /healthz, port: http, httpHeaders: [{name: Host, value: localhost}]}
+            periodSeconds: 3
+            failureThreshold: 40
+          livenessProbe:
+            httpGet: {path: /healthz, port: http, httpHeaders: [{name: Host, value: localhost}]}
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet: {path: /readyz, port: http, httpHeaders: [{name: Host, value: localhost}]}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-api
+  labels:
+    {{- include "reviewbot.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "reviewbot.selectorLabels" (list . "api") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.apiPort }}
+      targetPort: http
+{{- if .Values.service.apiAlias }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    {{- include "reviewbot.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "reviewbot.selectorLabels" (list . "api") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+{{- end }}
+{{- with (include "reviewbot.hpa" (list . "api" .Values.api)) }}
+---
+{{ . }}
+{{- end }}
+{{- with (include "reviewbot.pdb" (list . "api" .Values.api)) }}
+---
+{{ . }}
+{{- end }}

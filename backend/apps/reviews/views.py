@@ -17,7 +17,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
-from apps.accounts.permissions import IsAdmin, IsAdminOrReadOnly
+from apps.accounts.permissions import IsAdmin, IsReviewerOrReadOnly
+from apps.audit.services import record
 from apps.core.exceptions import Conflict
 from apps.repositories.models import SEVERITY_RANK
 from apps.reviews.engine.profiles import PROFILES
@@ -55,7 +56,7 @@ class PullRequestViewSet(
     mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet[PullRequest]
 ):
     serializer_class = PullRequestSerializer
-    permission_classes = [IsAdminOrReadOnly]
+    permission_classes = [IsReviewerOrReadOnly]
     pagination_class = PullRequestPagination
 
     def get_queryset(self) -> QuerySet[PullRequest]:
@@ -148,6 +149,7 @@ class PullRequestViewSet(
             run = request_manual_review(pr, request.user)
         except ActiveRunExists as exc:
             raise Conflict("A review for this pull request is already queued or running.") from exc
+        record("review.requested", request=request, target=pr, review_id=run.pk)
         return Response(
             ReviewRunSummarySerializer(with_counts(ReviewRun.objects.filter(pk=run.pk)).get()).data,
             status=status.HTTP_201_CREATED,
@@ -201,7 +203,7 @@ class FindingViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet[Finding]
     """Accept/dismiss findings and vote on them (RE-16)."""
 
     serializer_class = FindingSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsReviewerOrReadOnly]
     http_method_names = ["get", "patch", "put", "delete"]
 
     def get_queryset(self) -> QuerySet[Finding]:
@@ -212,11 +214,21 @@ class FindingViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet[Finding]
         finding = self.get_object()
         serializer = FindingStateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        previous = finding.state
         finding.state = serializer.validated_data["state"]
         finding.dismiss_reason = serializer.validated_data["dismiss_reason"]
         finding.state_changed_by = cast(User, request.user)
         finding.state_changed_at = timezone.now()
         finding.save(update_fields=["state", "dismiss_reason", "state_changed_by", "state_changed_at"])
+        if previous != finding.state:
+            record(
+                "finding.state_changed",
+                request=request,
+                target=finding,
+                previous=previous,
+                state=finding.state,
+                reason=finding.dismiss_reason,
+            )
         return Response(self.get_serializer(finding).data)
 
     @extend_schema(request=FeedbackVoteSerializer, responses={200: FindingSerializer})

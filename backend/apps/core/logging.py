@@ -50,6 +50,11 @@ def _redact(value: Any, key: str | None = None) -> Any:
     return value
 
 
+def redact(value: Any) -> Any:
+    """Redacts secret-looking values and values under secret-looking keys (for logs and audit metadata)."""
+    return _redact(value)
+
+
 def redact_secrets(
     _logger: Any, _method: str, event_dict: MutableMapping[str, Any]
 ) -> MutableMapping[str, Any]:

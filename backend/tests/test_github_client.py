@@ -169,7 +169,9 @@ def test_manifest_requests_least_privilege(settings):
         "contents": "read",
         "metadata": "read",
         "checks": "write",
+        "emails": "read",
     }
+    assert manifest["callback_urls"] == [f"{settings.PUBLIC_URL}/api/v1/auth/github/callback"]
     assert manifest["default_events"] == ["pull_request", "issue_comment"]
     assert manifest["hook_attributes"]["url"] == f"{settings.PUBLIC_URL}/webhooks/github"
     assert manifest["public"] is False

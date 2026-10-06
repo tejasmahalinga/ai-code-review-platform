@@ -1,0 +1,17 @@
+# Used by CI: helm lint / template + kubeconform.
+publicUrl: https://reviewbot.example.com
+ingress:
+  host: reviewbot.example.com
+  className: nginx
+  tls:
+    - secretName: reviewbot-tls
+      hosts: [reviewbot.example.com]
+secrets:
+  djangoSecretKey: ci-secret-key
+  encryptionKeys: dGVzdC1rZXktdGVzdC1rZXktdGVzdC1rZXktdGVzdC0=
+  databaseUrl: postgres://reviewbot:pw@postgres:5432/reviewbot
+  redisUrl: redis://redis:6379/0
+  extra:
+    REVIEWBOT_METRICS_TOKEN: ci-token
+config:
+  REVIEWBOT_ALLOW_SIGNUP: "true"

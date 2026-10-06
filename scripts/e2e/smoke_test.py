@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 BASE = os.environ.get("BASE_URL", "http://localhost:3000").rstrip("/")
@@ -79,6 +80,58 @@ def run_id_from_history(pull_request_id: int, trigger: str) -> int | None:
     return next((h["id"] for h in history if h["trigger"] == trigger), None)
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        return None
+
+
+def new_session():
+    """A separate browser: own cookie jar, redirects returned instead of followed."""
+    session_jar = http.cookiejar.CookieJar()
+    return session_jar, urllib.request.build_opener(urllib.request.HTTPCookieProcessor(session_jar), NoRedirect())
+
+
+def browser_get(session, path: str) -> tuple[int, str, str]:
+    """GET as a browser navigation; returns (status, Location header, body)."""
+    _, session_opener = session
+    try:
+        with session_opener.open(f"{BASE}{path}", timeout=30) as response:
+            return response.status, response.headers.get("Location", ""), response.read().decode()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.headers.get("Location", ""), exc.read().decode()
+
+
+def team_checks() -> None:
+    """ADM-02/03/04: invite a reviewer who joins with GitHub; roles are enforced; it is all audited."""
+    status, created = call("POST", "/api/v1/invites", {"email": "dev@example.com", "role": "reviewer"})
+    expect(status == 201 and created["url"].startswith("http"), f"invite created ({status})")
+    token = created["url"].rsplit("/", 1)[-1]
+
+    dev = new_session()
+    status, _, body = browser_get(dev, f"/api/v1/auth/invites/{token}")
+    expect(status == 200 and json.loads(body)["role"] == "reviewer", "invite link resolves")
+    status, location, _ = browser_get(dev, f"/api/v1/auth/github/start?invite={token}")
+    expect(status == 302 and "/login/oauth/authorize?" in location, "sign-in redirects to GitHub")
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(location).query)
+    expect(query["client_id"] == ["Iv1.e2e"], "GitHub App OAuth client is used")
+    status, location, _ = browser_get(
+        dev, f"/api/v1/auth/github/callback?code=e2e&state={query['state'][0]}"
+    )
+    expect(status == 302 and location.endswith("/pull-requests"), f"GitHub callback signs in ({status} {location})")
+    status, _, body = browser_get(dev, "/api/v1/auth/me")
+    me = json.loads(body)
+    expect(me["role"] == "reviewer" and me["github_login"] == "dev-octo", "invitee joined as reviewer via GitHub")
+    status, _, _ = browser_get(dev, "/api/v1/llm-credentials")
+    expect(status == 403, "reviewer cannot see LLM keys")
+
+    status, users = call("GET", "/api/v1/users")
+    expect(status == 200 and {u["email"] for u in users} == {"admin@example.com", "dev@example.com"}, "users listed")
+    status, events = call("GET", "/api/v1/audit-events")
+    seen = {e["action"] for e in events["results"]}
+    expected = {"setup.completed", "credential.created", "user.invited", "invite.accepted", "auth.login"}
+    expect(expected <= seen, f"audit log records team and key events ({sorted(seen)})")
+
+
 def private_key() -> str:
     return subprocess.run(
         ["openssl", "genrsa", "2048"], check=True, capture_output=True, text=True
@@ -100,7 +153,14 @@ def main() -> None:
     status, data = call(
         "POST",
         "/api/v1/integrations/github/manual",
-        {"app_id": "1", "app_slug": "reviewbot-e2e", "private_key": private_key(), "webhook_secret": WEBHOOK_SECRET},
+        {
+            "app_id": "1",
+            "app_slug": "reviewbot-e2e",
+            "private_key": private_key(),
+            "webhook_secret": WEBHOOK_SECRET,
+            "client_id": "Iv1.e2e",
+            "client_secret": "e2e-client-secret",
+        },
     )
     expect(status == 201, f"GitHub App configured ({status} {data})")
     status, data = call("POST", "/api/v1/integrations/github/sync")
@@ -217,6 +277,8 @@ def main() -> None:
 
     status, usage = call("GET", "/api/v1/usage?group_by=credential")
     expect(usage["totals"]["requests"] >= 2, "usage endpoint aggregates calls")
+
+    team_checks()
     print("\nEnd-to-end smoke test passed.")
 
 

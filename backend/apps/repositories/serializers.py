@@ -10,6 +10,23 @@ from apps.repositories.models import Installation, Repository, RepositorySetting
 from apps.reviews.engine.ignore import DEFAULT_IGNORE_PATTERNS
 from apps.reviews.engine.repo_config import ConfigError, normalize_rules
 
+# Settings a reviewer may change: the same review-content knobs a `.reviewbot.yml` can set, plus
+# test suggestions. Keys, cost guards, triggers and the check gate stay admin-only.
+REVIEWER_SETTINGS_FIELDS = frozenset(
+    {
+        "profile",
+        "min_severity",
+        "min_confidence",
+        "max_inline_comments",
+        "ignore_patterns",
+        "replace_default_ignores",
+        "custom_instructions",
+        "rules",
+        "suggest_tests",
+        "post_when_no_findings",
+    }
+)
+
 
 class InstallationSerializer(serializers.ModelSerializer[Installation]):
     suspended = serializers.SerializerMethodField()

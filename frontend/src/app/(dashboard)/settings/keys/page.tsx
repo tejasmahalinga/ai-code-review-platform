@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   Alert,
   Badge,
@@ -26,6 +26,7 @@ export default function KeysPage() {
   const credentials = useQuery({ queryKey: ["llm-credentials"], queryFn: () => api<LLMCredential[]>("/llm-credentials") });
   const providers = useQuery({ queryKey: ["llm-providers"], queryFn: () => api<LLMProviderInfo[]>("/llm-providers") });
   const [showForm, setShowForm] = useState(false);
+  const [rotating, setRotating] = useState<number | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["llm-credentials"] });
   const validate = useMutation({
@@ -90,35 +91,56 @@ export default function KeysPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {credentials.data!.map((c) => (
-                <tr key={c.id}>
-                  <td className="px-4 py-2 font-medium">{c.name}</td>
-                  <td className="px-4 py-2">
-                    {providerLabel(c.provider)}
-                    {c.base_url && <span className="block text-xs text-slate-500">{c.base_url}</span>}
-                  </td>
-                  <td className="px-4 py-2 font-mono text-xs">{c.default_model}</td>
-                  <td className="px-4 py-2 font-mono text-xs">{c.last4 ? `••••${c.last4}` : "—"}</td>
-                  <td className="px-4 py-2">
-                    <Badge tone={STATUS_TONE[c.status]}>{c.status}</Badge>
-                    {c.status_message && <span className="block max-w-xs text-xs text-red-700">{c.status_message}</span>}
-                  </td>
-                  <td className="px-4 py-2">{c.in_use_by} repo(s)</td>
-                  <td className="px-4 py-2 text-slate-600">{formatDate(c.last_validated_at)}</td>
-                  <td className="space-x-2 whitespace-nowrap px-4 py-2 text-right">
-                    <Button variant="secondary" loading={validate.isPending && validate.variables === c.id} onClick={() => validate.mutate(c.id)}>
-                      Validate
-                    </Button>
-                    <Button
-                      variant="danger"
-                      onClick={() => {
-                        const warning = c.in_use_by > 0 ? ` ${c.in_use_by} enabled repo(s) use it and will stop being reviewed.` : "";
-                        if (confirm(`Revoke "${c.name}"? The stored key is deleted.${warning}`)) revoke.mutate(c.id);
-                      }}
-                    >
-                      Revoke
-                    </Button>
-                  </td>
-                </tr>
+                <Fragment key={c.id}>
+                  <tr>
+                    <td className="px-4 py-2 font-medium">{c.name}</td>
+                    <td className="px-4 py-2">
+                      {providerLabel(c.provider)}
+                      {c.base_url && <span className="block text-xs text-slate-500">{c.base_url}</span>}
+                    </td>
+                    <td className="px-4 py-2 font-mono text-xs">{c.default_model}</td>
+                    <td className="px-4 py-2 font-mono text-xs">{c.last4 ? `••••${c.last4}` : "—"}</td>
+                    <td className="px-4 py-2">
+                      <Badge tone={STATUS_TONE[c.status]}>{c.status}</Badge>
+                      {c.status_message && <span className="block max-w-xs text-xs text-red-700">{c.status_message}</span>}
+                    </td>
+                    <td className="px-4 py-2">{c.in_use_by} repo(s)</td>
+                    <td className="px-4 py-2 text-slate-600">{formatDate(c.last_validated_at)}</td>
+                    <td className="space-x-2 whitespace-nowrap px-4 py-2 text-right">
+                      <Button variant="secondary" loading={validate.isPending && validate.variables === c.id} onClick={() => validate.mutate(c.id)}>
+                        Validate
+                      </Button>
+                      {c.status !== "revoked" && (
+                        <Button variant="secondary" onClick={() => setRotating(rotating === c.id ? null : c.id)}>
+                          Rotate
+                        </Button>
+                      )}
+                      <Button
+                        variant="danger"
+                        onClick={() => {
+                          const warning = c.in_use_by > 0 ? ` ${c.in_use_by} enabled repo(s) use it and will stop being reviewed.` : "";
+                          if (confirm(`Revoke "${c.name}"? The stored key is deleted.${warning}`)) revoke.mutate(c.id);
+                        }}
+                      >
+                        Revoke
+                      </Button>
+                    </td>
+                  </tr>
+                  {rotating === c.id && (
+                    <tr>
+                      <td colSpan={8} className="bg-slate-50 px-4 py-3">
+                        <RotateKeyForm
+                          credential={c}
+                          onDone={() => {
+                            setRotating(null);
+                            invalidate();
+                          }}
+                          onCancel={() => setRotating(null)}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -240,5 +262,39 @@ function AddKeyForm({
         </div>
       </form>
     </Card>
+  );
+}
+
+function RotateKeyForm({ credential, onDone, onCancel }: { credential: LLMCredential; onDone: () => void; onCancel: () => void }) {
+  const [apiKey, setApiKey] = useState("");
+  const rotate = useMutation({
+    mutationFn: () => api<LLMCredential>(`/llm-credentials/${credential.id}/rotate`, { method: "POST", body: { api_key: apiKey } }),
+    onSuccess: onDone,
+  });
+  const fieldError = rotate.error instanceof ApiError ? rotate.error.fieldErrors().api_key : undefined;
+  return (
+    <form
+      className="flex flex-wrap items-end gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        rotate.mutate();
+      }}
+    >
+      <div className="min-w-72 flex-1">
+        <Field
+          label={`New key for "${credential.name}"`}
+          hint="Validated before it replaces the stored key. Repositories using this key keep working."
+          error={fieldError ?? (rotate.error && !fieldError ? errorMessage(rotate.error) : undefined)}
+        >
+          <Input type="password" autoComplete="off" required value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+        </Field>
+      </div>
+      <Button type="submit" loading={rotate.isPending}>
+        Validate and replace
+      </Button>
+      <Button type="button" variant="ghost" onClick={onCancel}>
+        Cancel
+      </Button>
+    </form>
   );
 }

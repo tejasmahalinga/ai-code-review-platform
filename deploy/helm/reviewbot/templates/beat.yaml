@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "reviewbot.fullname" . }}-beat
+  labels:
+    {{- include "reviewbot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: beat
+spec:
+  # A second scheduler would run every periodic task twice.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "reviewbot.selectorLabels" (list . "beat") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "reviewbot.selectorLabels" (list . "beat") | nindent 8 }}
+      annotations:
+        {{- include "reviewbot.configChecksums" . | nindent 8 }}
+        {{- with .Values.beat.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "reviewbot.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with (include "reviewbot.podScheduling" . | trim) }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      {{- with (include "reviewbot.waitForMigrations" . | trim) }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      containers:
+        - name: beat
+          image: {{ include "reviewbot.apiImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["beat"]
+          {{- include "reviewbot.backendEnv" . | nindent 10 }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "ls /tmp/celerybeat-schedule* >/dev/null 2>&1"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          resources:
+            {{- toYaml .Values.beat.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}

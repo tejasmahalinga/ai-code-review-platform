@@ -7,8 +7,9 @@
 > Docker Compose end-to-end smoke test (`scripts/e2e/`). Deviations from the plan, all deliberate:
 > - P1 shipped so far: RE-10 incremental push reviews, INT-02 check runs, RE-11 review profiles, RE-14 review
 >   rules, RE-15 `.reviewbot.yml`, RE-17 PR comment commands, REPO-03 base-branch filters, RE-12 risk score, RE-13 test suggestions, RE-16 feedback,
->   PR-04 run comparison, PR-05 severity/risk filters and search.
-> - Manual re-run requires admin in v0.1 (all users are admins until ADM-02).
+>   PR-04 run comparison, PR-05 severity/risk filters and search, ADM-02 roles and invites, ADM-03 sign in with
+>   GitHub, ADM-04 audit log. Also a Helm chart for Kubernetes (`deploy/helm/reviewbot`).
+> - Re-runs and finding triage need the reviewer role; keys, integrations and users need admin (ADM-02).
 > - Cost (`cost_usd`) is recorded as null until the pricing table ships with KEY-05.
 
 ## 1. Product overview

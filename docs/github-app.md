@@ -11,6 +11,7 @@ third party ever holds a token for your code.
 | Contents | Read | Required by GitHub to read file diffs of private repositories |
 | Metadata | Read | Mandatory for all Apps |
 | Checks | Read & write | Report a "Reviewbot" check run per reviewed commit (optional) |
+| Email addresses (account permission) | Read | "Sign in with GitHub": read the signed-in user's verified emails |
 
 Events: **Pull request** and **Issue comment** (for `/reviewbot` commands). Installation events are always
 delivered to Apps. Apps created before v0.2 should enable the *Issue comment* event in the App settings.
@@ -92,3 +93,20 @@ With *Report a "Reviewbot" check run* enabled (the default), every reviewed comm
 | Review failed (LLM or GitHub outage) | `neutral`: an outage never blocks merges |
 
 The gate severity is off ("never fail") by default.
+
+## Sign in with GitHub
+
+The GitHub App doubles as the dashboard's login provider. Apps created through the manifest flow in v0.2 or
+later are configured automatically. Older Apps need two changes in the App's settings on GitHub:
+
+1. Under **Identifying and authorizing users**, add the callback URL `https://<your-host>/api/v1/auth/github/callback`.
+2. Under **Permissions → Account permissions**, set **Email addresses** to *Read-only*, and accept the change on
+   each installation.
+
+With a manually configured App, also enter its **Client ID** and **Client secret** in the manual setup form (or set
+`REVIEWBOT_GITHUB_OAUTH_CLIENT_ID` / `_SECRET`). The user's GitHub token is used once to read their profile and
+verified emails, then discarded; it is never stored.
+
+GitHub only lets users of the owning account authorize a **private** App. If people outside that organization
+need to sign in, either make the App public (it still can't be installed without your approval) or use a separate
+OAuth App through `REVIEWBOT_GITHUB_OAUTH_CLIENT_ID` / `_SECRET`.

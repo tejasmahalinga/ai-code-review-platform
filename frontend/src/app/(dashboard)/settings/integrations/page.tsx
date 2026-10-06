@@ -213,7 +213,7 @@ function ConnectGitHub({ webUrl, webhookUrl }: { webUrl: string; webhookUrl: str
 
 function ManualGitHubApp() {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState({ app_id: "", app_slug: "", private_key: "", webhook_secret: "" });
+  const [form, setForm] = useState({ app_id: "", app_slug: "", private_key: "", webhook_secret: "", client_id: "", client_secret: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const save = useMutation({
     mutationFn: () => api("/integrations/github/manual", { method: "POST", body: form }),
@@ -225,8 +225,9 @@ function ManualGitHubApp() {
   return (
     <Card title="Use an existing GitHub App">
       <p className="mb-4 text-sm text-slate-600">
-        Required permissions: Pull requests (read &amp; write), Contents (read), Metadata (read). Subscribe to the
-        “Pull request” event and set the webhook URL and secret.
+        Required permissions: Pull requests (read &amp; write), Contents (read), Metadata (read), Checks (read &amp;
+        write), and the account permission Email addresses (read) for sign-in. Subscribe to the “Pull request” and
+        “Issue comment” events and set the webhook URL and secret.
       </p>
       <form
         className="grid gap-4 md:grid-cols-2"
@@ -249,6 +250,12 @@ function ManualGitHubApp() {
         </Field>
         <Field label="Webhook secret" error={errors.webhook_secret}>
           <Input type="password" required value={form.webhook_secret} onChange={set("webhook_secret")} />
+        </Field>
+        <Field label="Client ID (optional)" hint="Enables “Sign in with GitHub”." error={errors.client_id}>
+          <Input value={form.client_id} onChange={set("client_id")} />
+        </Field>
+        <Field label="Client secret (optional)" error={errors.client_secret}>
+          <Input type="password" value={form.client_secret} onChange={set("client_secret")} />
         </Field>
         <div className="md:col-span-2">
           <Field label="Private key (PEM)" error={errors.private_key}>

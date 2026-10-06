@@ -12,14 +12,25 @@ from django.conf import settings
 
 from apps.git_providers.github.client import GitHubAppClient, GitHubInstallationClient
 
-# Least privilege: read code, write PR reviews and check runs. Nothing else.
-APP_PERMISSIONS = {"pull_requests": "write", "contents": "read", "metadata": "read", "checks": "write"}
+# Least privilege: read code, write PR reviews and check runs. "emails" is a user permission used only by
+# "Sign in with GitHub" to read the signed-in user's verified addresses.
+APP_PERMISSIONS = {
+    "pull_requests": "write",
+    "contents": "read",
+    "metadata": "read",
+    "checks": "write",
+    "emails": "read",
+}
 # installation / installation_repositories events are always delivered to Apps.
 APP_EVENTS = ["pull_request", "issue_comment"]  # issue_comment carries `/reviewbot` commands
 
 
 def webhook_url() -> str:
     return f"{settings.PUBLIC_URL}/webhooks/github"
+
+
+def oauth_callback_url() -> str:
+    return f"{settings.PUBLIC_URL}/api/v1/auth/github/callback"
 
 
 def build_manifest(app_name: str) -> dict[str, Any]:
@@ -31,6 +42,8 @@ def build_manifest(app_name: str) -> dict[str, Any]:
         "redirect_url": f"{base}/api/v1/integrations/github/callback",
         "setup_url": f"{base}/api/v1/integrations/github/installed",
         "setup_on_update": True,
+        "callback_urls": [oauth_callback_url()],
+        "request_oauth_on_install": False,
         "public": False,
         "default_permissions": APP_PERMISSIONS,
         "default_events": APP_EVENTS,

@@ -9,10 +9,12 @@ import { api, isUnauthenticated } from "@/lib/api";
 import { useMe } from "@/lib/hooks";
 
 const NAV = [
-  { href: "/pull-requests", label: "Pull requests" },
-  { href: "/repositories", label: "Repositories" },
-  { href: "/settings/keys", label: "LLM keys" },
-  { href: "/settings/integrations", label: "Integrations" },
+  { href: "/pull-requests", label: "Pull requests", admin: false },
+  { href: "/repositories", label: "Repositories", admin: false },
+  { href: "/settings/keys", label: "LLM keys", admin: true },
+  { href: "/settings/integrations", label: "Integrations", admin: true },
+  { href: "/settings/team", label: "Team", admin: true },
+  { href: "/settings/audit", label: "Audit log", admin: true },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -54,7 +56,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             Reviewbot
           </Link>
           <nav className="flex flex-1 flex-wrap gap-1" aria-label="Main">
-            {NAV.map((item) => (
+            {NAV.filter((item) => !item.admin || me.data?.role === "admin").map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -68,7 +70,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             ))}
           </nav>
           <div className="flex items-center gap-3 text-sm text-slate-600">
-            <span>{me.data?.email}</span>
+            <Link href="/settings/account" className="hover:underline" title="Your account">
+              {me.data?.name || me.data?.email}
+            </Link>
+            {me.data?.role !== "admin" && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">{me.data?.role}</span>}
             <Button variant="ghost" onClick={logout}>
               Sign out
             </Button>

@@ -1,0 +1,17 @@
+Reviewbot {{ .Chart.AppVersion }} is deploying.
+
+Dashboard: {{ include "reviewbot.publicUrl" . }}
+
+1. Watch the migration and the pods:
+     kubectl -n {{ .Release.Namespace }} get jobs,pods -l app.kubernetes.io/instance={{ .Release.Name }}
+2. Open the dashboard and create the first admin on the /setup page (only possible while there are no users),
+   or headless:
+     kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "reviewbot.fullname" . }}-api -- \
+       python manage.py createadmin --email you@example.com
+3. Connect GitHub under Settings → Integrations. GitHub must reach
+     {{ include "reviewbot.publicUrl" . }}/webhooks/github
+{{- if not .Values.secrets.existingSecret }}
+
+WARNING: secrets were passed as chart values. Prefer secrets.existingSecret, and back up
+REVIEWBOT_ENCRYPTION_KEYS: without it stored LLM keys and GitHub credentials cannot be decrypted.
+{{- end }}

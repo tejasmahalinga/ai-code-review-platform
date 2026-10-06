@@ -1,5 +1,7 @@
 # Self-hosting guide
 
+> Running on Kubernetes or a managed cloud? See [Deploying on Kubernetes](kubernetes.md) for the Helm chart.
+
 This guide takes a fresh Linux VM to a working Reviewbot instance in about 30 minutes.
 
 ## Requirements

@@ -29,7 +29,56 @@ export interface User {
   email: string;
   name: string;
   role: Role;
+  is_active: boolean;
+  github_login: string;
+  has_password: boolean;
+  last_login: string | null;
   created_at: string;
+}
+
+export const ROLES: { id: Role; label: string; description: string }[] = [
+  { id: "admin", label: "Admin", description: "Everything, including keys, integrations, users and the audit log." },
+  { id: "reviewer", label: "Reviewer", description: "Re-run reviews, triage findings, edit review rules." },
+  { id: "viewer", label: "Viewer", description: "Read-only access to pull requests and reviews." },
+];
+
+export type InviteStatus = "pending" | "accepted" | "revoked" | "expired";
+
+export interface Invite {
+  id: number;
+  email: string;
+  role: Role;
+  status: InviteStatus;
+  created_by_email: string;
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+}
+
+export interface CreatedInvite extends Invite {
+  url: string;
+  email_sent: boolean;
+}
+
+export interface InviteInfo {
+  email: string;
+  role: Role;
+  expires_at: string;
+  github_login: boolean;
+}
+
+export interface AuditEvent {
+  id: number;
+  created_at: string;
+  actor: number | null;
+  actor_email: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  target_label: string;
+  ip: string | null;
+  user_agent: string;
+  metadata: Record<string, unknown>;
 }
 
 export interface Paginated<T> {
@@ -265,3 +314,16 @@ export function riskBucket(score: number | null | undefined): "low" | "medium" |
   return score >= 60 ? "high" : score >= 30 ? "medium" : "low";
 }
 
+/** Repository settings a reviewer may change (mirrors REVIEWER_SETTINGS_FIELDS in the API). */
+export const REVIEWER_SETTINGS_FIELDS: string[] = [
+  "profile",
+  "min_severity",
+  "min_confidence",
+  "max_inline_comments",
+  "ignore_patterns",
+  "replace_default_ignores",
+  "custom_instructions",
+  "rules",
+  "suggest_tests",
+  "post_when_no_findings",
+];

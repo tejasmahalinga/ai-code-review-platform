@@ -1,0 +1,40 @@
+{{- if .Values.migrations.enabled }}
+# One Job per release revision (a plain resource, not a Helm hook, so it also works with GitOps tools).
+# Pods of the new revision wait in their init container until it has applied every migration.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "reviewbot.fullname" . }}-migrate-{{ .Release.Revision }}
+  labels:
+    {{- include "reviewbot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.migrations.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "reviewbot.selectorLabels" (list . "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "reviewbot.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with (include "reviewbot.podScheduling" . | trim) }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ include "reviewbot.apiImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate"]
+          {{- include "reviewbot.backendEnv" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+{{- end }}

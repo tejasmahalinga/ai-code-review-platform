@@ -3,6 +3,7 @@ from drf_spectacular.views import SpectacularAPIView
 from rest_framework.routers import SimpleRouter
 
 from apps.accounts import views as accounts
+from apps.audit import views as audit
 from apps.core import views as core
 from apps.credentials import views as credentials
 from apps.repositories import views as repositories
@@ -16,12 +17,20 @@ router.register("pull-requests", reviews.PullRequestViewSet, basename="pull-requ
 router.register("reviews", reviews.ReviewRunViewSet, basename="review")
 router.register("findings", reviews.FindingViewSet, basename="finding")
 router.register("webhook-deliveries", webhooks.WebhookDeliveryViewSet, basename="webhook-delivery")
+router.register("users", accounts.UserViewSet, basename="user")
+router.register("invites", accounts.InviteViewSet, basename="invite")
+router.register("audit-events", audit.AuditEventViewSet, basename="audit-event")
 
 api_v1: list[URLPattern | URLResolver] = [
     path("auth/csrf", accounts.CsrfView.as_view()),
     path("auth/login", accounts.LoginView.as_view()),
     path("auth/logout", accounts.LogoutView.as_view()),
     path("auth/me", accounts.MeView.as_view()),
+    path("auth/me/github", accounts.GitHubUnlinkView.as_view()),
+    path("auth/password", accounts.PasswordChangeView.as_view()),
+    path("auth/github/start", accounts.GitHubLoginStartView.as_view()),
+    path("auth/github/callback", accounts.GitHubLoginCallbackView.as_view()),
+    path("auth/invites/<str:token>", accounts.InvitePublicView.as_view()),
     path("setup/status", accounts.SetupStatusView.as_view()),
     path("setup", accounts.SetupView.as_view()),
     path("llm-providers", credentials.LLMProvidersView.as_view()),
