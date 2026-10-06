@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] — 2026-10-06
 
 ### Added
 - **GitLab support (INT-03):** reviews merge requests on gitlab.com and self-managed GitLab 15+.
@@ -18,6 +18,14 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 - The Git provider layer is now provider-neutral: inline comments a provider refuses one by one are moved into the
   summary and marked "in summary".
+
+### Fixed
+- GitLab instances on internal host names without a dot (for example `http://gitlab:8080`) can be connected.
+
+### Upgrading
+- Migrations run automatically. To review GitLab merge requests, follow `docs/gitlab.md`: connect a bot user's
+  access token under **Integrations → GitLab**, then enable projects.
+- Existing GitHub setups need no changes.
 
 ## [0.3.0] — 2026-10-06
 

@@ -61,11 +61,11 @@ Kubernetes API token. They only need outbound HTTPS to GitHub and to your LLM pr
    decrypted.
 
 2. Install the chart. Each release publishes it to GHCR as an OCI chart:
-   `oci://ghcr.io/tejasmahalinga/charts/reviewbot --version 0.3.0`. From a checkout you can use
+   `oci://ghcr.io/tejasmahalinga/charts/reviewbot --version 0.4.0`. From a checkout you can use
    `./deploy/helm/reviewbot` instead.
 
    ```bash
-   helm install reviewbot oci://ghcr.io/tejasmahalinga/charts/reviewbot --version 0.3.0 -n reviewbot \
+   helm install reviewbot oci://ghcr.io/tejasmahalinga/charts/reviewbot --version 0.4.0 -n reviewbot \
      --set publicUrl=https://reviewbot.example.com \
      --set ingress.host=reviewbot.example.com \
      --set ingress.className=nginx \

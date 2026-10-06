@@ -173,7 +173,7 @@ REST_FRAMEWORK = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "Reviewbot API",
     "DESCRIPTION": "REST API for the Reviewbot dashboard.",
-    "VERSION": "0.3.0",
+    "VERSION": "0.4.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
 }

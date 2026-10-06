@@ -2,8 +2,8 @@ apiVersion: v2
 name: reviewbot
 description: Self-hosted, bring-your-own-key AI code review for GitHub pull requests.
 type: application
-version: 0.3.0
-appVersion: "0.3.0"
+version: 0.4.0
+appVersion: "0.4.0"
 home: https://github.com/tejasmahalinga/ai-code-review-platform
 sources:
   - https://github.com/tejasmahalinga/ai-code-review-platform
