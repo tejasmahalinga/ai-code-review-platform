@@ -4,7 +4,8 @@
 Requires a running stack whose API talks to scripts/e2e/fake_github.py (GITHUB_API_URL) and has
 REVIEWBOT_ENABLE_FAKE_PROVIDER=true. Exercises, through the dashboard origin:
 setup admin → add LLM key → connect GitHub App → sync → enable repo → signed PR webhook →
-review posted on GitHub with inline comments → findings in the dashboard → re-run without duplicates.
+review posted on GitHub with inline comments and a check run → findings in the dashboard → re-run without
+duplicates → new push reviewed incrementally.
 
 Usage: BASE_URL=http://localhost:3000 FAKE_GITHUB_URL=http://localhost:9000 python3 smoke_test.py
 """
@@ -71,6 +72,11 @@ def wait_for(fn, what: str, timeout: float = 120.0):
             return value
         time.sleep(1)
     expect(False, f"timed out waiting for {what}")
+
+
+def run_id_from_history(pull_request_id: int, trigger: str) -> int | None:
+    _, history = call("GET", f"/api/v1/pull-requests/{pull_request_id}/reviews")
+    return next((h["id"] for h in history if h["trigger"] == trigger), None)
 
 
 def private_key() -> str:
@@ -153,6 +159,32 @@ def main() -> None:
     with urllib.request.urlopen(f"{FAKE_GITHUB}/_posted", timeout=10) as response:  # noqa: S310
         posted = json.loads(response.read())
     expect(len(posted) == 2 and posted[1]["comments"] == [], "re-run did not duplicate inline comments")
+
+    with urllib.request.urlopen(f"{FAKE_GITHUB}/_checks", timeout=10) as response:  # noqa: S310
+        checks = json.loads(response.read())
+    expect(len(checks) >= 1 and checks[0].get("status") == "completed", "check run created and completed")
+    expect(checks[0].get("conclusion") == "neutral", "check run is neutral with findings and no gate")
+
+    # A new commit is pushed to the PR: only the change since the last reviewed commit is reviewed.
+    urllib.request.urlopen(urllib.request.Request(f"{FAKE_GITHUB}/_push", data=b"{}", method="POST"), timeout=10)  # noqa: S310
+    push_payload = json.loads(raw)
+    push_payload["action"] = "synchronize"
+    push_payload["pull_request"]["head"]["sha"] = "c" * 40
+    push_raw = json.dumps(push_payload).encode()
+    push_sig = "sha256=" + hmac.new(WEBHOOK_SECRET.encode(), push_raw, hashlib.sha256).hexdigest()
+    status, data = call("POST", "/webhooks/github", raw=push_raw, headers={"X-Hub-Signature-256": push_sig,
+                                                                           "X-GitHub-Event": "pull_request",
+                                                                           "X-GitHub-Delivery": "e2e-push"})
+    expect(status == 202 and data["reason"].startswith("push_review_queued"), f"push accepted ({status} {data})")
+    push_run_id = data and run_id_from_history(run["pull_request"]["id"], "push")
+    expect(bool(push_run_id), "push review run created")
+    push_run = wait_for(
+        lambda: (r := call("GET", f"/api/v1/reviews/{push_run_id}")[1])["status"] in ("completed", "failed", "skipped") and r,
+        "push review to finish",
+    )
+    expect(push_run["status"] == "completed", f"push review completed ({push_run['status']} {push_run['error']})")
+    expect(push_run["incremental"] is True and push_run["compare_base_sha"] == "a" * 40, "push review is incremental")
+    expect([f["path"] for f in push_run["files_reviewed"]] == ["app/util.py"], "only the new change was reviewed")
 
     status, usage = call("GET", "/api/v1/usage?group_by=credential")
     expect(usage["totals"]["requests"] >= 2, "usage endpoint aggregates calls")

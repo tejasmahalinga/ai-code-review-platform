@@ -7,12 +7,19 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings as django_settings
+
 from apps.core.logging import get_logger
 from apps.git_providers.github.client import pull_request_from_payload
 from apps.repositories import services as repo_services
 from apps.repositories.models import GitProviderConnection, Installation, Repository
 from apps.reviews.models import ReviewRun
-from apps.reviews.services import DuplicateRun, create_run, upsert_pull_request
+from apps.reviews.services import (
+    DuplicateRun,
+    create_run,
+    supersede_queued_push_runs,
+    upsert_pull_request,
+)
 from apps.webhooks.models import WebhookDelivery
 
 logger = get_logger(__name__)
@@ -86,10 +93,7 @@ def _pull_request(connection: GitProviderConnection, payload: dict[str, Any]) ->
     info = pull_request_from_payload(payload["pull_request"])
     pull_request = upsert_pull_request(repository, info)
 
-    if action not in REVIEW_ACTIONS:
-        if action == "synchronize":
-            # Incremental review on push is RE-10 (P1); re-run manually from the dashboard meanwhile.
-            return IGNORED, "push_reviews_not_enabled", repository, None
+    if action not in REVIEW_ACTIONS and action != "synchronize":
         return PROCESSED, f"pull_request_{action}", repository, None
 
     settings = repo_services.ensure_settings(repository)
@@ -99,6 +103,8 @@ def _pull_request(connection: GitProviderConnection, payload: dict[str, Any]) ->
         return IGNORED, "draft_pull_request", repository, None
     if info.state != "open":
         return IGNORED, "pull_request_not_open", repository, None
+    if action == "synchronize":
+        return _push(repository, pull_request, info.head_sha, info.base_sha, settings.review_on_push)
     try:
         run = create_run(
             pull_request, trigger=ReviewRun.Trigger.WEBHOOK, head_sha=info.head_sha, base_sha=info.base_sha
@@ -106,3 +112,22 @@ def _pull_request(connection: GitProviderConnection, payload: dict[str, Any]) ->
     except DuplicateRun:
         return IGNORED, "already_reviewed_commit", repository, None
     return PROCESSED, "review_queued", repository, run
+
+
+def _push(repository: Repository, pull_request: Any, head_sha: str, base_sha: str, enabled: bool) -> Result:
+    """New commits on an open PR (RE-10): debounce, and let the newest push win."""
+    if not enabled:
+        return IGNORED, "push_reviews_disabled", repository, None
+    superseded = supersede_queued_push_runs(pull_request)
+    try:
+        run = create_run(
+            pull_request,
+            trigger=ReviewRun.Trigger.PUSH,
+            head_sha=head_sha,
+            base_sha=base_sha,
+            countdown=django_settings.REVIEWBOT_PUSH_DEBOUNCE_SECONDS,
+        )
+    except DuplicateRun:
+        return IGNORED, "already_reviewed_commit", repository, None
+    reason = "push_review_queued" + (f" (superseded {superseded})" if superseded else "")
+    return PROCESSED, reason, repository, run

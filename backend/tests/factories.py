@@ -159,3 +159,15 @@ class ScriptedLLM:
 
     def validate(self) -> None:
         return None
+
+
+class EnqueueRecorder(list):
+    """Stand-in for ``apps.reviews.services.enqueue``: records run ids (and countdowns separately)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.countdowns: list[float] = []
+
+    def __call__(self, run_id: int, countdown: float = 0) -> None:
+        self.append(run_id)
+        self.countdowns.append(countdown)

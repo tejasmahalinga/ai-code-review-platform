@@ -13,6 +13,7 @@ from django.conf import settings
 from apps.core.logging import get_logger
 from apps.git_providers.base import (
     ChangedFile,
+    CompareResult,
     GitProviderError,
     InlineComment,
     PostedReview,
@@ -25,6 +26,8 @@ API_VERSION = "2022-11-28"
 MAX_RATE_LIMIT_SLEEP = 60.0
 FILES_PER_PAGE = 100
 GITHUB_MAX_FILES = 3000  # GitHub's hard limit for the pull request files endpoint.
+MAX_CHECK_TITLE = 255
+MAX_CHECK_SUMMARY = 60_000  # GitHub limit is 65,535 characters.
 
 # Installation tokens live only in process memory (never in the database, cache, or logs).
 _token_cache: dict[tuple[str, int], tuple[str, float]] = {}
@@ -206,16 +209,7 @@ class GitHubInstallationClient:
                 params={"per_page": FILES_PER_PAGE, "page": page},
             ).json()
             for item in batch:
-                files.append(
-                    ChangedFile(
-                        path=item["filename"],
-                        status=item.get("status", "modified"),
-                        additions=int(item.get("additions", 0)),
-                        deletions=int(item.get("deletions", 0)),
-                        patch=item.get("patch"),
-                        previous_path=item.get("previous_filename"),
-                    )
-                )
+                files.append(_changed_file(item))
             if len(batch) < FILES_PER_PAGE:
                 break
             page += 1
@@ -270,6 +264,52 @@ class GitHubInstallationClient:
             if line is not None:
                 out[(item["path"], int(line))] = (str(item["id"]), item.get("html_url", ""))
         return out
+
+    def compare(self, repo_full_name: str, base: str, head: str) -> CompareResult:
+        """Files changed between two commits. GitHub returns at most 300 files for a comparison."""
+        data = self.api.request(
+            "GET", f"/repos/{repo_full_name}/compare/{base}...{head}", auth=self._auth()
+        ).json()
+        return CompareResult(
+            status=data.get("status", "diverged"),
+            files=[_changed_file(item) for item in data.get("files") or []],
+        )
+
+    def create_check_run(self, repo_full_name: str, head_sha: str, *, name: str, details_url: str) -> str:
+        payload = {
+            "name": name,
+            "head_sha": head_sha,
+            "status": "in_progress",
+            "details_url": details_url,
+            "output": {"title": "Review in progress", "summary": "Reviewbot is reviewing this commit."},
+        }
+        data = self.api.request(
+            "POST", f"/repos/{repo_full_name}/check-runs", auth=self._auth(), json=payload
+        )
+        return str(data.json()["id"])
+
+    def complete_check_run(
+        self, repo_full_name: str, check_run_id: str, *, conclusion: str, title: str, summary: str
+    ) -> None:
+        payload = {
+            "status": "completed",
+            "conclusion": conclusion,
+            "output": {"title": title[:MAX_CHECK_TITLE], "summary": summary[:MAX_CHECK_SUMMARY]},
+        }
+        self.api.request(
+            "PATCH", f"/repos/{repo_full_name}/check-runs/{check_run_id}", auth=self._auth(), json=payload
+        )
+
+
+def _changed_file(item: dict[str, Any]) -> ChangedFile:
+    return ChangedFile(
+        path=item["filename"],
+        status=item.get("status", "modified"),
+        additions=int(item.get("additions", 0)),
+        deletions=int(item.get("deletions", 0)),
+        patch=item.get("patch"),
+        previous_path=item.get("previous_filename"),
+    )
 
 
 class InlineCommentsRejected(GitProviderError):

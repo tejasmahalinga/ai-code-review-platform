@@ -30,6 +30,7 @@ from apps.reviews.engine.chunker import Chunk, build_chunks, estimate_tokens
 from apps.reviews.engine.diff import FileDiff, parse_patch
 from apps.reviews.engine.fingerprint import fingerprint
 from apps.reviews.engine.ignore import IgnoreMatcher
+from apps.reviews.engine.profiles import get_profile
 from apps.reviews.engine.schema import REVIEW_SCHEMA, ChunkReview, RawFinding, SchemaError, parse_review
 from apps.reviews.models import Finding, LLMUsage, PullRequest, ReviewRun
 
@@ -98,8 +99,10 @@ def execute(
         review_run_id=run.pk, repo=run.pull_request.repository.full_name, pr=run.pull_request.number
     )
     log.info("review.started")
+    provider: GitProvider | None = git
     try:
-        _run(run, git=git, llm=llm, log=log)
+        provider = provider or git_registry.provider_for(run.pull_request.repository)
+        _run(run, git=provider, llm=llm, log=log)
     except RetryLater:
         run.status = Status.QUEUED
         run.save(update_fields=["status"])
@@ -112,6 +115,7 @@ def execute(
         log.exception("review.crashed", stage=run.stage)
         run.error = f"Internal error during '{run.stage}': {type(exc).__name__}"
         _finish(run, Status.FAILED, reason="internal_error")
+    _complete_check(run, provider, log)
     return run
 
 
@@ -150,7 +154,7 @@ def _skip(run: ReviewRun, reason: str, message: str, git: GitProvider | None = N
 # --- stages -------------------------------------------------------------------------------------
 
 
-def _run(run: ReviewRun, *, git: GitProvider | None, llm: LLMProvider | None, log: Any) -> None:
+def _run(run: ReviewRun, *, git: GitProvider, llm: LLMProvider | None, log: Any) -> None:
     snap = run.settings_snapshot
     pr = run.pull_request
     repository = pr.repository
@@ -163,7 +167,6 @@ def _run(run: ReviewRun, *, git: GitProvider | None, llm: LLMProvider | None, lo
 
     # 1. Fetch
     _set_stage(run, Stage.FETCH_DIFF)
-    git = git or git_registry.provider_for(repository)
     try:
         info = git.get_pull_request(repository.full_name, pr.number)
         if info.state != "open":
@@ -172,8 +175,15 @@ def _run(run: ReviewRun, *, git: GitProvider | None, llm: LLMProvider | None, lo
         PullRequest.objects.filter(pk=pr.pk).update(
             head_sha=info.head_sha, title=info.title, is_draft=info.is_draft, state=info.state
         )
+        if run.trigger == ReviewRun.Trigger.PUSH and info.head_sha != run.head_sha:
+            # A newer push arrived; its own run reviews the latest commit.
+            run.summary = "Superseded by a newer push."
+            run.save(update_fields=["summary"])
+            _finish(run, Status.CANCELLED, reason="superseded")
+            return
         run.head_sha, run.base_sha = info.head_sha, info.base_sha
         run.save(update_fields=["head_sha", "base_sha"])
+        _start_check(run, git, snap, log)
         files = git.list_files(repository.full_name, pr.number, max_files=snap["max_files"] + 1)
     except GitProviderError as exc:
         _raise_git(exc)
@@ -188,9 +198,13 @@ def _run(run: ReviewRun, *, git: GitProvider | None, llm: LLMProvider | None, lo
         )
         return
 
+    review_files = _incremental_files(run, git, files, log)
+
     # 2. Filter
     _set_stage(run, Stage.FILTER)
-    diffs, ignored = _filter_files(files, snap)
+    diffs, ignored = _filter_files(review_files, snap)
+    # Inline comments must target lines of the PR diff (base...head), even for incremental reviews.
+    anchor_diffs = _filter_files(files, snap)[0] if run.incremental else diffs
     run.files_ignored = ignored
     run.files_reviewed = [
         {"path": d.path, "status": d.status, "additions": d.additions, "deletions": d.deletions}
@@ -198,7 +212,11 @@ def _run(run: ReviewRun, *, git: GitProvider | None, llm: LLMProvider | None, lo
     ]
     run.save(update_fields=["files_ignored", "files_reviewed"])
     if not diffs:
-        run.summary = "No reviewable files (all changed files are ignored, deleted, or binary)."
+        run.summary = (
+            f"No reviewable changes since {run.compare_base_sha[:7]}."
+            if run.incremental
+            else "No reviewable files (all changed files are ignored, deleted, or binary)."
+        )
         run.save(update_fields=["summary"])
         _finish(run, Status.SKIPPED, reason="no_reviewable_files")
         return
@@ -215,7 +233,9 @@ def _run(run: ReviewRun, *, git: GitProvider | None, llm: LLMProvider | None, lo
 
     # 3. Chunk
     _set_stage(run, Stage.CHUNK)
-    system_prompt = prompts.build_system_prompt(snap.get("custom_instructions", ""))
+    system_prompt = prompts.build_system_prompt(
+        snap.get("custom_instructions", ""), profile=get_profile(snap.get("profile"))
+    )
     overhead = estimate_tokens(system_prompt) + 200
     budget = max(snap["chunk_tokens"] - overhead, 1_000)
     chunks = build_chunks(diffs, budget)
@@ -250,7 +270,7 @@ def _run(run: ReviewRun, *, git: GitProvider | None, llm: LLMProvider | None, lo
 
     # 5. Aggregate
     _set_stage(run, Stage.AGGREGATE)
-    by_path = {d.path: d for d in diffs}
+    by_path = {d.path: d for d in anchor_diffs}
     findings = _build_findings(run, results, by_path, snap)
     summaries = [r.review.summary for r in results if r.review and r.review.summary]
     run.summary = "\n\n".join(summaries)
@@ -266,6 +286,99 @@ def _run(run: ReviewRun, *, git: GitProvider | None, llm: LLMProvider | None, lo
     PullRequest.objects.filter(pk=pr.pk).update(last_reviewed_sha=run.head_sha)
     _finish(run, Status.COMPLETED)
     log.info("review.completed", findings=len(findings), chunks=len(chunks), failed_chunks=len(failed))
+
+
+def _incremental_files(
+    run: ReviewRun, git: GitProvider, files: list[ChangedFile], log: Any
+) -> list[ChangedFile]:
+    """For push runs, narrows the review to files changed since the last reviewed commit (RE-10).
+
+    Falls back to the full PR diff after a force push (base not an ancestor) or when the comparison
+    is unavailable.
+    """
+    last = run.pull_request.last_reviewed_sha
+    if run.trigger != ReviewRun.Trigger.PUSH or not last or last == run.head_sha:
+        return files
+    repo = run.pull_request.repository.full_name
+    try:
+        comparison = git.compare(repo, last, run.head_sha)
+    except GitProviderError as exc:
+        if exc.retryable:
+            _raise_git(exc)
+        log.info("review.compare_unavailable", error=str(exc))
+        return files
+    if comparison.status != "ahead":
+        log.info("review.full_review_after_force_push", compare_status=comparison.status)
+        return files
+    pr_paths = {f.path for f in files}
+    run.incremental = True
+    run.compare_base_sha = last
+    run.save(update_fields=["incremental", "compare_base_sha"])
+    return [f for f in comparison.files if f.path in pr_paths]
+
+
+# --- check runs (INT-02) ------------------------------------------------------------------------
+
+CHECK_NAME = "Reviewbot"
+REPORTED_FOR_GATE = (PostStatus.POSTED, PostStatus.IN_SUMMARY, PostStatus.CAP_EXCEEDED, PostStatus.DUPLICATE)
+
+
+def _start_check(run: ReviewRun, git: GitProvider, snap: dict[str, Any], log: Any) -> None:
+    if not snap.get("check_runs", True) or run.check_run_id:
+        return
+    try:
+        run.check_run_id = git.create_check_run(
+            run.pull_request.repository.full_name,
+            run.head_sha,
+            name=CHECK_NAME,
+            details_url=dashboard_url(run),
+        )
+    except GitProviderError as exc:
+        if exc.status in (403, 404):
+            log.warning("github.checks_permission_missing", error=str(exc))
+        else:
+            log.warning("github.check_run_create_failed", error=str(exc))
+        return
+    run.save(update_fields=["check_run_id"])
+
+
+def check_outcome(run: ReviewRun) -> tuple[str, str, str]:
+    """Returns (conclusion, title, summary) for a finished run. Never fails a check because of our outage."""
+    link = f"[Open the review in Reviewbot]({dashboard_url(run)})"
+    if run.status == Status.COMPLETED:
+        reported = list(
+            run.findings.filter(post_status__in=REPORTED_FOR_GATE).values_list("severity", flat=True)
+        )
+        counts = render.counts_line({s: reported.count(s) for s in render.SEVERITY_ORDER})
+        summary = f"{counts}\n\n{link}"
+        if not reported:
+            return "success", "No issues found", summary
+        gate = run.settings_snapshot.get("gate_severity")
+        if gate and any(SEVERITY_RANK[s] >= SEVERITY_RANK[gate] for s in reported):
+            blocking = sum(1 for s in reported if SEVERITY_RANK[s] >= SEVERITY_RANK[gate])
+            return "failure", f"{blocking} finding(s) at or above {gate}", summary
+        return "neutral", f"{len(reported)} finding(s)", summary
+    if run.status == Status.CANCELLED:
+        return "skipped", "Superseded by a newer push", link
+    if run.status == Status.SKIPPED:
+        return "skipped", "Review skipped", f"{run.summary}\n\n{link}"
+    return "neutral", "Review failed", f"The review could not be completed: {run.error}\n\n{link}"
+
+
+def _complete_check(run: ReviewRun, git: GitProvider | None, log: Any) -> None:
+    if not run.check_run_id or git is None or run.status not in ReviewRun.TERMINAL:
+        return
+    conclusion, title, summary = check_outcome(run)
+    try:
+        git.complete_check_run(
+            run.pull_request.repository.full_name,
+            run.check_run_id,
+            conclusion=conclusion,
+            title=title,
+            summary=summary,
+        )
+    except GitProviderError as exc:
+        log.warning("github.check_run_update_failed", error=str(exc))
 
 
 def _raise_git(exc: GitProviderError) -> None:
@@ -413,6 +526,7 @@ def _build_findings(
         .values_list("fingerprint", flat=True)
     )
     min_rank = SEVERITY_RANK[snap.get("min_severity", "low")]
+    allowed_categories = get_profile(snap.get("profile")).allowed_categories
     min_confidence = float(snap.get("min_confidence", 0.5))
     seen: set[str] = set()
     findings: list[Finding] = []
@@ -438,7 +552,9 @@ def _build_findings(
                 body=raw.body,
                 suggestion=raw.suggestion,
             )
-            if SEVERITY_RANK[raw.severity] < min_rank:
+            if allowed_categories is not None and raw.category not in allowed_categories:
+                finding.post_status = PostStatus.CATEGORY_FILTERED
+            elif SEVERITY_RANK[raw.severity] < min_rank:
                 finding.post_status = PostStatus.BELOW_THRESHOLD
             elif raw.confidence < min_confidence:
                 finding.post_status = PostStatus.LOW_CONFIDENCE
@@ -503,6 +619,11 @@ def _post(
                 model=run.model,
                 head_sha=run.head_sha,
                 dashboard_url=dashboard_url(run),
+                scope_note=(
+                    f"Incremental review of changes since {run.compare_base_sha[:7]}."
+                    if run.incremental
+                    else ""
+                ),
             )
         )
 

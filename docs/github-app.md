@@ -10,10 +10,15 @@ third party ever holds a token for your code.
 | Pull requests | Read & write | Read PR metadata and changed files, post review comments |
 | Contents | Read | Required by GitHub to read file diffs of private repositories |
 | Metadata | Read | Mandatory for all Apps |
+| Checks | Read & write | Report a "Reviewbot" check run per reviewed commit (optional) |
 
 Events: **Pull request**. Installation events are always delivered to Apps.
 The App never requests administration, workflow, or organization permissions, and it never approves,
-requests changes, or merges. It only posts reviews of type `COMMENT`.
+requests changes, or merges. It only posts reviews of type `COMMENT` and, optionally, check runs.
+
+> **Apps created before v0.2** lack the Checks permission. Add *Checks: Read & write* in the App's settings
+> on GitHub, then accept the updated permissions on each installation. Until then reviews work normally
+> and check runs are skipped (the worker logs `github.checks_permission_missing`).
 
 ## Option 1: one-click setup (manifest flow)
 
@@ -59,5 +64,25 @@ GITHUB_API_URL=https://github.example.com/api/v3
    repository) plus a summary. Findings it cannot attach to a changed line are listed in the summary.
 5. Re-running a review never re-posts a comment that was already posted on the PR.
 
-New pushes to an open PR (`synchronize`) update the PR in the dashboard but are not reviewed automatically
-in v0.1. Use **Re-run review** in the dashboard. Incremental push reviews are planned (RE-10).
+## New commits (incremental reviews)
+
+When new commits are pushed to an open PR (`synchronize`), Reviewbot waits `REVIEWBOT_PUSH_DEBOUNCE_SECONDS`
+(default 60). A newer push in that window replaces the queued review. Reviewbot then compares the last reviewed
+commit with the new head and sends **only the files changed since then** to the LLM. Inline comments are still
+anchored to the pull request's diff. After a force push, when the last reviewed commit is no longer an ancestor,
+it falls back to a full review. You can turn this off per repository with *Review new commits pushed to open
+pull requests*.
+
+## Check runs
+
+With *Report a "Reviewbot" check run* enabled (the default), every reviewed commit gets a check:
+
+| Outcome | Conclusion |
+|---|---|
+| No findings | `success` |
+| Findings, none at or above the gate severity | `neutral` |
+| A finding at or above the gate severity | `failure` (use with branch protection to block merging) |
+| Review skipped, or superseded by a newer push | `skipped` |
+| Review failed (LLM or GitHub outage) | `neutral`: an outage never blocks merges |
+
+The gate severity is off ("never fail") by default.

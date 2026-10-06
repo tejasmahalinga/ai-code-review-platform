@@ -6,6 +6,7 @@ from django.db import models
 from django.utils import timezone
 
 from apps.credentials import crypto
+from apps.reviews.engine.profiles import DEFAULT_PROFILE, PROFILE_CHOICES
 
 
 class GitProviderConnection(models.Model):
@@ -167,6 +168,16 @@ class RepositorySettings(models.Model):
         default=12_000, help_text="Target diff tokens per LLM request."
     )
     post_when_no_findings = models.BooleanField(default=True)
+    profile = models.CharField(max_length=16, choices=PROFILE_CHOICES, default=DEFAULT_PROFILE)
+    review_on_push = models.BooleanField(default=True, help_text="Review new commits pushed to open PRs.")
+    check_runs = models.BooleanField(default=True, help_text="Report a GitHub check run per review.")
+    gate_severity = models.CharField(
+        max_length=16,
+        choices=Severity.choices,
+        blank=True,
+        default="",
+        help_text="Fail the check run when a finding at or above this severity is reported (empty = never).",
+    )
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -196,4 +207,8 @@ class RepositorySettings(models.Model):
             "max_input_tokens": self.max_input_tokens,
             "chunk_tokens": self.chunk_tokens,
             "post_when_no_findings": self.post_when_no_findings,
+            "profile": self.profile,
+            "review_on_push": self.review_on_push,
+            "check_runs": self.check_runs,
+            "gate_severity": self.gate_severity,
         }

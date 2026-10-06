@@ -12,8 +12,8 @@ from django.conf import settings
 
 from apps.git_providers.github.client import GitHubAppClient, GitHubInstallationClient
 
-# Least privilege: read code, write PR reviews. Nothing else. ``checks: write`` arrives with INT-02.
-APP_PERMISSIONS = {"pull_requests": "write", "contents": "read", "metadata": "read"}
+# Least privilege: read code, write PR reviews and check runs. Nothing else.
+APP_PERMISSIONS = {"pull_requests": "write", "contents": "read", "metadata": "read", "checks": "write"}
 # installation / installation_repositories events are always delivered to Apps.
 APP_EVENTS = ["pull_request"]
 

@@ -116,6 +116,10 @@ class RepositorySettingsSerializer(serializers.ModelSerializer[RepositorySetting
             "max_input_tokens",
             "chunk_tokens",
             "post_when_no_findings",
+            "profile",
+            "review_on_push",
+            "check_runs",
+            "gate_severity",
             "updated_at",
         ]
         read_only_fields = ["updated_at"]

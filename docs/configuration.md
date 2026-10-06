@@ -50,6 +50,7 @@ All configuration is read from environment variables (`deploy/.env` with Docker 
 | `CELERY_QUEUES` | `default,reviews` | Queues a worker consumes. Split them to dedicate workers to reviews. |
 | `REVIEWBOT_REVIEW_TIME_LIMIT_SECONDS` | `900` | Hard time limit for one review run. |
 | `REVIEWBOT_STUCK_RUN_MINUTES` | `30` | Running reviews older than this are marked failed by the reaper. |
+| `REVIEWBOT_PUSH_DEBOUNCE_SECONDS` | `60` | Delay before reviewing a push; newer pushes within the window replace it. |
 | `GUNICORN_WORKERS` | `3` | API processes. |
 
 ## Observability
@@ -65,6 +66,10 @@ All configuration is read from environment variables (`deploy/.env` with Docker 
 | Setting | Default | Effect |
 |---|---|---|
 | Auto-review | on | Review when a PR is opened, reopened, or marked ready for review. |
+| Review new commits | on | Review pushes to open PRs incrementally (only changes since the last reviewed commit). |
+| Review profile | balanced | `strict`, `balanced`, `lenient` (no style), or `security` (security findings only). Sets the prompt focus and pre-fills the thresholds. |
+| Check run | on | Report a "Reviewbot" check per reviewed commit (needs the Checks permission). |
+| Fail the check at | never | Severity at or above which the check concludes `failure`. |
 | Review drafts | off | Also review draft PRs. |
 | LLM key / model override | first valid key / key default | Which credential and model to use. |
 | Minimum severity | `low` | Findings below it are stored but not posted. |

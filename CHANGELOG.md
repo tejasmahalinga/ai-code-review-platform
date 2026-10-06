@@ -3,7 +3,22 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — v0.1.0 (MVP)
+## [Unreleased] — v0.2.0
+
+### Added
+- **Incremental reviews on push (RE-10):** `synchronize` events queue a debounced review of only the changes
+  since the last reviewed commit; newer pushes supersede queued ones; force pushes fall back to a full review.
+- **GitHub check runs (INT-02):** a "Reviewbot" check per reviewed commit with an optional severity gate.
+  Failed reviews conclude `neutral`, so an outage never blocks merges. The GitHub App manifest now requests
+  `checks: write`.
+- **Review profiles (RE-11):** strict, balanced, lenient, and security-focused. Each profile has its own prompt
+  focus, category filter, and threshold presets. Available at `GET /api/v1/review-profiles`.
+
+### Fixed
+- Docker Compose: worker and beat now have healthchecks, so `docker compose up --wait` succeeds; gunicorn's
+  control socket is disabled to avoid a permission error under the non-root user.
+
+## v0.1.0 (MVP)
 
 ### Added
 - GitHub App integration via the manifest flow (or manual App configuration), installation and repository

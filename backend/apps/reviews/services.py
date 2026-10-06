@@ -41,10 +41,10 @@ def upsert_pull_request(repository: Repository, info: PullRequestInfo) -> PullRe
     return pr
 
 
-def enqueue(run_id: int) -> None:
+def enqueue(run_id: int, countdown: float = 0) -> None:
     from apps.reviews.tasks import run_review
 
-    run_review.delay(run_id)
+    run_review.apply_async((run_id,), countdown=countdown)
 
 
 def create_run(
@@ -54,14 +54,18 @@ def create_run(
     head_sha: str,
     base_sha: str = "",
     created_by: Any = None,
+    countdown: float = 0,
 ) -> ReviewRun:
     """Creates a queued run (snapshotting repo settings) and enqueues it after commit.
 
-    Webhook-triggered runs are idempotent per (pull request, head SHA); manual runs are not.
+    Webhook- and push-triggered runs are idempotent per (pull request, head SHA, trigger); manual
+    runs are not. ``countdown`` delays the job (used to debounce bursts of pushes).
     """
     repo_settings = ensure_settings(pull_request.repository)
     idempotency_key = (
-        f"pr:{pull_request.pk}:{head_sha}:webhook" if trigger == ReviewRun.Trigger.WEBHOOK else None
+        f"pr:{pull_request.pk}:{head_sha}:{trigger}"
+        if trigger in (ReviewRun.Trigger.WEBHOOK, ReviewRun.Trigger.PUSH)
+        else None
     )
     run = ReviewRun(
         pull_request=pull_request,
@@ -79,9 +83,20 @@ def create_run(
             run.save()
     except IntegrityError as exc:
         raise DuplicateRun(idempotency_key) from exc
-    transaction.on_commit(lambda: enqueue(run.pk))
+    transaction.on_commit(lambda: enqueue(run.pk, countdown=countdown))
     logger.info("review.queued", review_run_id=run.pk, pull_request_id=pull_request.pk, trigger=trigger)
     return run
+
+
+def supersede_queued_push_runs(pull_request: PullRequest) -> int:
+    """Cancels push-triggered runs that have not started; a newer push replaces them."""
+    return pull_request.review_runs.filter(
+        trigger=ReviewRun.Trigger.PUSH, status=ReviewRun.Status.QUEUED
+    ).update(
+        status=ReviewRun.Status.CANCELLED,
+        status_reason="superseded",
+        finished_at=timezone.now(),
+    )
 
 
 def request_manual_review(pull_request: PullRequest, user: Any) -> ReviewRun:

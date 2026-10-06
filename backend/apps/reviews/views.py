@@ -18,6 +18,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import IsAdmin, IsAdminOrReadOnly
 from apps.core.exceptions import Conflict
+from apps.reviews.engine.profiles import PROFILES
 from apps.reviews.models import Finding, LLMUsage, PullRequest, ReviewRun
 from apps.reviews.serializers import (
     REPORTED_STATUSES,
@@ -143,6 +144,26 @@ def _parse_date(value: str | None, default: datetime) -> datetime:
     except ValueError as exc:
         raise ValidationError(f"Invalid date: {value}") from exc
     return parsed if parsed.tzinfo else timezone.make_aware(parsed)
+
+
+class ReviewProfilesView(APIView):
+    """Built-in review profiles and the threshold presets the dashboard applies when one is chosen."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        return Response(
+            [
+                {
+                    "id": p.id,
+                    "label": p.label,
+                    "description": p.description,
+                    "categories": sorted(p.allowed_categories) if p.allowed_categories is not None else None,
+                    "defaults": p.defaults,
+                }
+                for p in PROFILES.values()
+            ]
+        )
 
 
 class UsageView(APIView):

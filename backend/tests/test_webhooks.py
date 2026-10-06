@@ -10,15 +10,21 @@ import pytest
 from apps.repositories.models import Installation, Repository
 from apps.reviews.models import PullRequest, ReviewRun
 from apps.webhooks.models import WebhookDelivery
-from tests.factories import WEBHOOK_SECRET, make_connection, make_installation, make_repository
+from tests.factories import (
+    WEBHOOK_SECRET,
+    EnqueueRecorder,
+    make_connection,
+    make_installation,
+    make_repository,
+)
 
 pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
 def enqueued(monkeypatch):
-    calls: list[int] = []
-    monkeypatch.setattr("apps.reviews.services.enqueue", calls.append)
+    calls = EnqueueRecorder()
+    monkeypatch.setattr("apps.reviews.services.enqueue", calls)
     return calls
 
 
@@ -141,12 +147,36 @@ def test_drafts_reviewed_when_enabled(anon, connection, fake_credential, enqueue
     assert ReviewRun.objects.count() == 1
 
 
-def test_synchronize_updates_head_without_review(anon, connection, fake_credential, enqueued):
+def test_synchronize_queues_debounced_push_review(
+    anon, connection, fake_credential, enqueued, settings, django_capture_on_commit_callbacks
+):
+    settings.REVIEWBOT_PUSH_DEBOUNCE_SECONDS = 45
     repo = make_repository(credential=fake_credential)
-    post(anon, "pull_request", pr_payload(repo))
-    post(anon, "pull_request", pr_payload(repo, "synchronize", sha="c" * 40))
+    with django_capture_on_commit_callbacks(execute=True):
+        post(anon, "pull_request", pr_payload(repo))
+        post(anon, "pull_request", pr_payload(repo, "synchronize", sha="c" * 40))
     assert PullRequest.objects.get().head_sha == "c" * 40
-    assert ReviewRun.objects.count() == 1
+    push_run = ReviewRun.objects.get(trigger="push")
+    assert (push_run.status, push_run.head_sha) == ("queued", "c" * 40)
+    assert enqueued.countdowns == [0, 45]
+    assert WebhookDelivery.objects.get(action="synchronize").reason == "push_review_queued"
+
+
+def test_newer_push_supersedes_queued_push_run(anon, connection, fake_credential, enqueued):
+    repo = make_repository(credential=fake_credential)
+    post(anon, "pull_request", pr_payload(repo, "synchronize", sha="c" * 40))
+    post(anon, "pull_request", pr_payload(repo, "synchronize", sha="d" * 40))
+    runs = {r.head_sha[0]: r for r in ReviewRun.objects.filter(trigger="push")}
+    assert (runs["c"].status, runs["c"].status_reason) == ("cancelled", "superseded")
+    assert runs["d"].status == "queued"
+    assert "superseded 1" in WebhookDelivery.objects.order_by("-id").first().reason
+
+
+def test_push_reviews_can_be_disabled(anon, connection, fake_credential, enqueued):
+    repo = make_repository(credential=fake_credential, review_on_push=False)
+    post(anon, "pull_request", pr_payload(repo, "synchronize", sha="c" * 40))
+    assert ReviewRun.objects.count() == 0
+    assert WebhookDelivery.objects.get().reason == "push_reviews_disabled"
 
 
 def test_closed_event_records_merge(anon, connection, fake_credential, enqueued):
@@ -215,7 +245,7 @@ def test_handler_failure_is_recorded_and_retriable(anon, connection, fake_creden
     assert response.status_code == 500
     assert WebhookDelivery.objects.get().status == "failed"
     monkeypatch.undo()
-    monkeypatch.setattr("apps.reviews.services.enqueue", enqueued.append)
+    monkeypatch.setattr("apps.reviews.services.enqueue", enqueued)
     response = post(anon, "pull_request", pr_payload(repo), delivery="retry-me")
     assert response.status_code == 202
     assert ReviewRun.objects.count() == 1

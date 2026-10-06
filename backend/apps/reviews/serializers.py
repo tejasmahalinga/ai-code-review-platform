@@ -4,6 +4,7 @@ from typing import Any
 
 from rest_framework import serializers
 
+from apps.reviews.engine.profiles import DEFAULT_PROFILE
 from apps.reviews.models import Finding, PullRequest, ReviewRun
 
 SEVERITIES = ["critical", "high", "medium", "low", "info"]
@@ -118,6 +119,7 @@ class ReviewRunSerializer(ReviewRunSummarySerializer):
     created_by_email = serializers.CharField(source="created_by.email", default=None, read_only=True)
     duration_ms = serializers.IntegerField(read_only=True)
     findings = FindingSerializer(many=True, read_only=True)
+    profile = serializers.SerializerMethodField()
 
     class Meta(ReviewRunSummarySerializer.Meta):
         fields = [
@@ -141,4 +143,10 @@ class ReviewRunSerializer(ReviewRunSummarySerializer):
             "files_ignored",
             "findings",
             "created_by_email",
+            "incremental",
+            "compare_base_sha",
+            "profile",
         ]
+
+    def get_profile(self, obj: ReviewRun) -> str:
+        return str(obj.settings_snapshot.get("profile") or DEFAULT_PROFILE)

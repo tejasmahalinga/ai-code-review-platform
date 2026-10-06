@@ -74,10 +74,13 @@ class SummaryContext:
     model: str
     head_sha: str
     dashboard_url: str
+    scope_note: str = ""  # e.g. "Incremental review of changes since abc1234."
 
 
 def summary_body(ctx: SummaryContext) -> str:
     lines = ["## Reviewbot review", ""]
+    if ctx.scope_note:
+        lines += [f"_{ctx.scope_note}_", ""]
     summaries = [neutralize(s.strip()) for s in ctx.summaries if s.strip()]
     if len(summaries) == 1:
         lines += [summaries[0], ""]

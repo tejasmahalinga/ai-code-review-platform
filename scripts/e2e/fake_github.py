@@ -2,7 +2,8 @@
 """A tiny stand-in for the GitHub REST API, for end-to-end tests (stdlib only).
 
 Serves one installation (id 77) with one repository (acme/demo) and one pull request (#1).
-Reviews posted by Reviewbot are recorded and exposed at GET /_posted.
+Reviews posted by Reviewbot are recorded and exposed at GET /_posted, check runs at GET /_checks.
+POST /_push simulates pushing a new commit (head aaaa... -> cccc...) that adds app/util.py.
 """
 
 from __future__ import annotations
@@ -39,6 +40,15 @@ FILES = [
     {"filename": "app/runner.py", "status": "added", "additions": 8, "deletions": 0, "patch": PATCH},
     {"filename": "package-lock.json", "status": "modified", "additions": 3, "deletions": 1, "patch": "@@ -1 +1 @@\n-a\n+b"},
 ]
+NEW_HEAD = "c" * 40
+UTIL_FILE = {
+    "filename": "app/util.py",
+    "status": "added",
+    "additions": 3,
+    "deletions": 0,
+    "patch": "@@ -0,0 +1,3 @@\n+def helper():\n+    # TODO: handle errors\n+    return 1",
+}
+CHECKS: list[dict] = []
 REPO = {"id": 4242, "name": "demo", "full_name": "acme/demo", "private": True, "default_branch": "main",
         "html_url": "https://github.example/acme/demo"}
 POSTED: list[dict] = []
@@ -62,6 +72,10 @@ class Handler(BaseHTTPRequestHandler):
         first_page = page is None or page.group(1) == "1"
         if path == "/_posted":
             return self._send(200, POSTED)
+        if path == "/_checks":
+            return self._send(200, CHECKS)
+        if path == f"/repos/acme/demo/compare/{'a' * 40}...{NEW_HEAD}":
+            return self._send(200, {"status": "ahead", "files": [UTIL_FILE]})
         if path == "/app/installations":
             return self._send(200, [{"id": 77, "account": {"login": "acme", "type": "Organization"}}] if first_page else [])
         if path == "/app/installations/77":
@@ -85,12 +99,30 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         data = json.loads(self.rfile.read(length) or b"{}")
+        if self.path == "/_push":
+            PR["head"]["sha"] = NEW_HEAD
+            if UTIL_FILE not in FILES:
+                FILES.append(UTIL_FILE)
+            return self._send(200, {"head": NEW_HEAD})
+        if self.path == "/repos/acme/demo/check-runs":
+            CHECKS.append({**data, "id": len(CHECKS) + 1})
+            return self._send(201, {"id": len(CHECKS)})
         if self.path == "/app/installations/77/access_tokens":
             return self._send(201, {"token": "ghs_faketoken0000000000000000", "expires_at": "2099-01-01T00:00:00Z"})
         if self.path == "/repos/acme/demo/pulls/1/reviews":
             POSTED.append(data)
             review_id = len(POSTED)
             return self._send(200, {"id": review_id, "html_url": f"https://github.example/acme/demo/pull/1#pullrequestreview-{review_id}"})
+        return self._send(404, {"message": "Not Found"})
+
+
+    def do_PATCH(self) -> None:
+        length = int(self.headers.get("Content-Length") or 0)
+        data = json.loads(self.rfile.read(length) or b"{}")
+        match = re.fullmatch(r"/repos/acme/demo/check-runs/(\d+)", self.path)
+        if match and 0 < int(match.group(1)) <= len(CHECKS):
+            CHECKS[int(match.group(1)) - 1].update(data)
+            return self._send(200, CHECKS[int(match.group(1)) - 1])
         return self._send(404, {"message": "Not Found"})
 
 

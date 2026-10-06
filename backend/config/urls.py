@@ -31,6 +31,7 @@ api_v1: list[URLPattern | URLResolver] = [
     path("integrations/github/installed", repositories.GitHubInstalledView.as_view()),
     path("integrations/github/sync", repositories.GitHubSyncView.as_view()),
     path("usage", reviews.UsageView.as_view()),
+    path("review-profiles", reviews.ReviewProfilesView.as_view()),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("", include(router.urls)),
 ]

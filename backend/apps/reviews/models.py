@@ -43,6 +43,7 @@ class ReviewRun(models.Model):
     class Trigger(models.TextChoices):
         WEBHOOK = "webhook", "Webhook"
         MANUAL = "manual", "Manual"
+        PUSH = "push", "New commits"
 
     class Status(models.TextChoices):
         QUEUED = "queued", "Queued"
@@ -88,6 +89,11 @@ class ReviewRun(models.Model):
     files_ignored = models.JSONField(default=list)
     chunk_count = models.PositiveIntegerField(default=0)
     chunks_failed = models.PositiveIntegerField(default=0)
+    incremental = models.BooleanField(
+        default=False, help_text="Only changes since compare_base_sha were reviewed."
+    )
+    compare_base_sha = models.CharField(max_length=64, blank=True)
+    check_run_id = models.CharField(max_length=64, blank=True)
     summary = models.TextField(blank=True)
     input_tokens = models.PositiveIntegerField(default=0)
     output_tokens = models.PositiveIntegerField(default=0)
@@ -128,6 +134,7 @@ class Finding(models.Model):
         DUPLICATE = "duplicate", "Already posted on this PR"
         CAP_EXCEEDED = "cap_exceeded", "Inline comment cap reached"
         NOT_POSTED = "not_posted", "Not posted (review failed)"
+        CATEGORY_FILTERED = "category_filtered", "Category excluded by profile"
 
     review_run = models.ForeignKey(ReviewRun, on_delete=models.CASCADE, related_name="findings")
     fingerprint = models.CharField(max_length=64, db_index=True)

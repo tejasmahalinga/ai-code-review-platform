@@ -108,6 +108,11 @@ export default function ReviewPage() {
                 </Alert>
               </div>
             )}
+            {run.status === "cancelled" && run.status_reason === "superseded" && (
+              <div className="mb-4">
+                <Alert kind="info">A newer push arrived before this review started, so it was skipped in favor of the newer commit.</Alert>
+              </div>
+            )}
             {run.status === "failed" && (
               <div className="mb-4">
                 <Alert>
@@ -116,7 +121,7 @@ export default function ReviewPage() {
               </div>
             )}
             <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
-              <Stat label="Trigger" value={run.trigger === "manual" ? `manual${run.created_by_email ? ` (${run.created_by_email})` : ""}` : "webhook"} />
+              <Stat label="Trigger" value={triggerLabel(run)} />
               <Stat label="Commit" value={<span className="font-mono">{run.head_sha.slice(0, 7)}</span>} />
               <Stat label="Model" value={<span className="font-mono text-xs">{run.model || "—"}</span>} />
               <Stat label="LLM key" value={run.credential_name ?? "—"} />
@@ -124,6 +129,17 @@ export default function ReviewPage() {
               <Stat label="LLM requests" value={`${run.chunk_count}${run.chunks_failed ? ` (${run.chunks_failed} failed)` : ""}`} />
               <Stat label="Duration" value={run.duration_ms != null ? `${(run.duration_ms / 1000).toFixed(1)} s` : "—"} />
               <Stat label="Queued" value={formatDate(run.created_at)} />
+              <Stat label="Profile" value={run.profile} />
+              <Stat
+                label="Scope"
+                value={
+                  run.incremental ? (
+                    <Badge tone="sky">since {run.compare_base_sha.slice(0, 7)}</Badge>
+                  ) : (
+                    "full pull request"
+                  )
+                }
+              />
             </dl>
             {run.summary && (
               <div className="mt-4 whitespace-pre-line rounded-md bg-slate-50 p-3 text-sm text-slate-800">{run.summary}</div>
@@ -211,6 +227,12 @@ export default function ReviewPage() {
       </div>
     </>
   );
+}
+
+function triggerLabel(run: ReviewRun): string {
+  if (run.trigger === "manual") return `manual${run.created_by_email ? ` (${run.created_by_email})` : ""}`;
+  if (run.trigger === "push") return "new commits";
+  return "pull request opened";
 }
 
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {

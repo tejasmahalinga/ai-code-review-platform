@@ -21,6 +21,7 @@ services:
     environment: &e2e-env
       GITHUB_API_URL: http://fake-github:9000
       REVIEWBOT_ENABLE_FAKE_PROVIDER: "true"
+      REVIEWBOT_PUSH_DEBOUNCE_SECONDS: "2"
 
   api:
     environment: *e2e-env

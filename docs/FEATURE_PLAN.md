@@ -5,8 +5,7 @@
 > **Implementation status (v0.1.0-dev):** every P0 feature in this plan (milestones M1–M4) is implemented on
 > Django REST Framework + PostgreSQL + Celery with a Next.js dashboard, covered by backend unit/API tests and a
 > Docker Compose end-to-end smoke test (`scripts/e2e/`). Deviations from the plan, all deliberate:
-> - Auto-review triggers on `opened` / `reopened` / `ready_for_review`. `synchronize` updates the PR but is not
->   auto-reviewed until RE-10 (P1); manual re-run covers it.
+> - P1 shipped so far: RE-10 incremental push reviews, INT-02 check runs, RE-11 review profiles.
 > - Manual re-run requires admin in v0.1 (all users are admins until ADM-02).
 > - Cost (`cost_usd`) is recorded as null until the pricing table ships with KEY-05.
 

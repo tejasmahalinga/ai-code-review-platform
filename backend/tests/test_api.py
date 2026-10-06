@@ -4,7 +4,7 @@ import pytest
 
 from apps.repositories.models import GitProviderConnection
 from apps.reviews.models import Finding, LLMUsage, ReviewRun
-from tests.factories import make_connection, make_pull_request, make_repository
+from tests.factories import EnqueueRecorder, make_connection, make_pull_request, make_repository
 from tests.http import MockRouter
 
 pytestmark = pytest.mark.django_db
@@ -12,8 +12,8 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture
 def no_enqueue(monkeypatch):
-    calls: list[int] = []
-    monkeypatch.setattr("apps.reviews.services.enqueue", calls.append)
+    calls = EnqueueRecorder()
+    monkeypatch.setattr("apps.reviews.services.enqueue", calls)
     return calls
 
 

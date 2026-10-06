@@ -168,6 +168,7 @@ def test_manifest_requests_least_privilege(settings):
         "pull_requests": "write",
         "contents": "read",
         "metadata": "read",
+        "checks": "write",
     }
     assert manifest["default_events"] == ["pull_request"]
     assert manifest["hook_attributes"]["url"] == f"{settings.PUBLIC_URL}/webhooks/github"
@@ -184,3 +185,46 @@ def test_signature_verification():
     assert not github_app.verify_signature(secret, payload + b" ", good)
     assert not github_app.verify_signature(secret, payload, None)
     assert not github_app.verify_signature("", payload, good)
+
+
+def test_compare_parses_status_and_files(router):
+    route = router.add(
+        "GET",
+        r"/repos/acme/app/compare/aaa\.\.\.ccc$",
+        {
+            "status": "ahead",
+            "files": [
+                {
+                    "filename": "a.py",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 0,
+                    "patch": "@@ -1 +1 @@\n-x\n+y",
+                }
+            ],
+        },
+    )
+    result = client(router).compare("acme/app", "aaa", "ccc")
+    assert result.status == "ahead"
+    assert [f.path for f in result.files] == ["a.py"]
+    assert route.calls[0].headers["authorization"].startswith("token ")
+
+
+def test_check_run_lifecycle(router):
+    create = router.add("POST", r"/repos/acme/app/check-runs$", {"id": 321})
+    update = router.add("PATCH", r"/repos/acme/app/check-runs/321$", {"id": 321})
+    c = client(router)
+    check_id = c.create_check_run("acme/app", "abc", name="Reviewbot", details_url="https://rb/reviews/1")
+    assert check_id == "321"
+    sent = body(create.calls[0])
+    assert (sent["name"], sent["head_sha"], sent["status"], sent["details_url"]) == (
+        "Reviewbot",
+        "abc",
+        "in_progress",
+        "https://rb/reviews/1",
+    )
+    c.complete_check_run("acme/app", "321", conclusion="failure", title="t" * 300, summary="s" * 70_000)
+    patch = body(update.calls[0])
+    assert (patch["status"], patch["conclusion"]) == ("completed", "failure")
+    assert len(patch["output"]["title"]) == 255
+    assert len(patch["output"]["summary"]) == 60_000

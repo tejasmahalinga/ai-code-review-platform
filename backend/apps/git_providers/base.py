@@ -51,6 +51,15 @@ class PostedReview:
     inline_rejected: bool = False
 
 
+@dataclass(frozen=True)
+class CompareResult:
+    status: str  # ahead | behind | diverged | identical
+    files: list[ChangedFile]
+
+
+CHECK_CONCLUSIONS = {"success", "failure", "neutral", "skipped", "cancelled"}
+
+
 class GitProviderError(Exception):
     def __init__(self, message: str, *, status: int | None = None, retry_after: float | None = None):
         super().__init__(message)
@@ -76,3 +85,11 @@ class GitProvider(Protocol):
         body: str,
         comments: list[InlineComment],
     ) -> PostedReview: ...
+
+    def compare(self, repo_full_name: str, base: str, head: str) -> CompareResult: ...
+
+    def create_check_run(self, repo_full_name: str, head_sha: str, *, name: str, details_url: str) -> str: ...
+
+    def complete_check_run(
+        self, repo_full_name: str, check_run_id: str, *, conclusion: str, title: str, summary: str
+    ) -> None: ...

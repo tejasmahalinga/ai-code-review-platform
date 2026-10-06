@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from apps.git_providers.base import (
     ChangedFile,
+    CompareResult,
     GitProviderError,
     InlineComment,
     PostedReview,
@@ -23,12 +24,29 @@ class PostedCall:
 
 
 @dataclass
+class FakeCheckRun:
+    id: str
+    repo: str
+    head_sha: str
+    name: str
+    details_url: str
+    status: str = "in_progress"
+    conclusion: str | None = None
+    title: str = ""
+    summary: str = ""
+
+
+@dataclass
 class FakeGitProvider:
     pull_requests: dict[tuple[str, int], PullRequestInfo] = field(default_factory=dict)
     files: dict[tuple[str, int], list[ChangedFile]] = field(default_factory=dict)
     posted: list[PostedCall] = field(default_factory=list)
     reject_inline: bool = False
     fail_with: GitProviderError | None = None
+    comparisons: dict[tuple[str, str, str], CompareResult] = field(default_factory=dict)
+    compare_calls: list[tuple[str, str, str]] = field(default_factory=list)
+    check_runs: list[FakeCheckRun] = field(default_factory=list)
+    checks_forbidden: bool = False
     _next_id: int = 1000
 
     def add_pull_request(self, repo: str, info: PullRequestInfo, files: list[ChangedFile]) -> None:
@@ -68,3 +86,26 @@ class FakeGitProvider:
             comment_id = f"{review_id}{index:03d}"
             review.comments[(comment.path, comment.line)] = (comment_id, f"{base}#discussion_r{comment_id}")
         return review
+
+    def add_comparison(self, repo: str, base: str, head: str, result: CompareResult) -> None:
+        self.comparisons[(repo, base, head)] = result
+
+    def compare(self, repo_full_name: str, base: str, head: str) -> CompareResult:
+        self.compare_calls.append((repo_full_name, base, head))
+        try:
+            return self.comparisons[(repo_full_name, base, head)]
+        except KeyError as exc:
+            raise GitProviderError("Not Found", status=404) from exc
+
+    def create_check_run(self, repo_full_name: str, head_sha: str, *, name: str, details_url: str) -> str:
+        if self.checks_forbidden:
+            raise GitProviderError("Resource not accessible by integration", status=403)
+        check = FakeCheckRun(str(len(self.check_runs) + 1), repo_full_name, head_sha, name, details_url)
+        self.check_runs.append(check)
+        return check.id
+
+    def complete_check_run(
+        self, repo_full_name: str, check_run_id: str, *, conclusion: str, title: str, summary: str
+    ) -> None:
+        check = next(c for c in self.check_runs if c.id == check_run_id)
+        check.status, check.conclusion, check.title, check.summary = "completed", conclusion, title, summary

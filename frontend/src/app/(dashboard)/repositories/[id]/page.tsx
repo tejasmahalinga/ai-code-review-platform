@@ -18,7 +18,7 @@ import {
   errorMessage,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
-import type { LLMCredential, Repository, RepositorySettings } from "@/lib/types";
+import type { LLMCredential, Repository, RepositorySettings, ReviewProfile } from "@/lib/types";
 import { SEVERITIES } from "@/lib/types";
 
 type FormState = Omit<RepositorySettings, "ignore_patterns" | "effective_model" | "default_ignore_patterns" | "updated_at"> & {
@@ -41,6 +41,10 @@ function toForm(s: RepositorySettings): FormState {
     max_input_tokens: s.max_input_tokens,
     chunk_tokens: s.chunk_tokens,
     post_when_no_findings: s.post_when_no_findings,
+    profile: s.profile,
+    review_on_push: s.review_on_push,
+    check_runs: s.check_runs,
+    gate_severity: s.gate_severity,
     ignore_text: s.ignore_patterns.join("\n"),
   };
 }
@@ -61,6 +65,7 @@ export default function RepositorySettingsPage() {
 function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; initial: RepositorySettings }) {
   const queryClient = useQueryClient();
   const credentials = useQuery({ queryKey: ["llm-credentials"], queryFn: () => api<LLMCredential[]>("/llm-credentials") });
+  const profiles = useQuery({ queryKey: ["review-profiles"], queryFn: () => api<ReviewProfile[]>("/review-profiles") });
   const [form, setForm] = useState<FormState>(() => toForm(initial));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
@@ -86,6 +91,10 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setSaved(false);
     setForm((f) => ({ ...f, [key]: value }));
+  };
+  const applyProfile = (p: ReviewProfile) => {
+    setSaved(false);
+    setForm((f) => ({ ...f, profile: p.id, ...p.defaults }));
   };
   const selectedCredential = credentials.data?.find((c) => c.id === form.credential);
   const usable = (credentials.data ?? []).filter((c) => c.status === "valid");
@@ -149,12 +158,76 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
               checked={form.auto_review}
               onChange={(e) => update("auto_review", e.target.checked)}
             />
+            <Checkbox
+              label="Review new commits pushed to open pull requests"
+              hint="Only the changes since the last reviewed commit are sent to the LLM. Bursts of pushes are debounced."
+              checked={form.review_on_push}
+              onChange={(e) => update("review_on_push", e.target.checked)}
+            />
             <Checkbox label="Also review draft pull requests" checked={form.review_drafts} onChange={(e) => update("review_drafts", e.target.checked)} />
             <Checkbox
               label="Post a summary even when nothing is found"
               checked={form.post_when_no_findings}
               onChange={(e) => update("post_when_no_findings", e.target.checked)}
             />
+          </div>
+        </Card>
+
+        <Card title="Review profile">
+          <div className="grid gap-3 md:grid-cols-4">
+            {profiles.data?.map((p) => (
+              <label
+                key={p.id}
+                className={`cursor-pointer rounded-md border p-3 text-sm ${
+                  form.profile === p.id ? "border-slate-900 ring-1 ring-slate-900" : "border-slate-200 hover:border-slate-400"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="profile"
+                  className="sr-only"
+                  checked={form.profile === p.id}
+                  onChange={() => applyProfile(p)}
+                />
+                <span className="block font-medium">{p.label}</span>
+                <span className="mt-1 block text-xs text-slate-600">{p.description}</span>
+                <span className="mt-2 block text-xs text-slate-500">
+                  {p.defaults.min_severity}+ · confidence {p.defaults.min_confidence} · {p.defaults.max_inline_comments} comments
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-slate-500">
+            Choosing a profile sets the review focus and fills in the thresholds below. You can still adjust them.
+          </p>
+        </Card>
+
+        <Card title="GitHub check">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Checkbox
+              label="Report a “Reviewbot” check run on each reviewed commit"
+              hint="Requires the Checks permission on the GitHub App."
+              checked={form.check_runs}
+              onChange={(e) => update("check_runs", e.target.checked)}
+            />
+            <Field
+              label="Fail the check when a finding is at least"
+              hint="Use with branch protection to block merging. A failed review never fails the check."
+              error={errors.gate_severity}
+            >
+              <Select
+                value={form.gate_severity}
+                disabled={!form.check_runs}
+                onChange={(e) => update("gate_severity", e.target.value as FormState["gate_severity"])}
+              >
+                <option value="">Never fail (neutral)</option>
+                {SEVERITIES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           </div>
         </Card>
 

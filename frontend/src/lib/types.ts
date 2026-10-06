@@ -6,6 +6,16 @@ export type Category = "bug" | "security" | "performance" | "maintainability" | 
 
 export const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "info"];
 
+export type ProfileId = "strict" | "balanced" | "lenient" | "security";
+
+export interface ReviewProfile {
+  id: ProfileId;
+  label: string;
+  description: string;
+  categories: Category[] | null;
+  defaults: { min_severity: Severity; min_confidence: number; max_inline_comments: number };
+}
+
 export interface User {
   id: number;
   email: string;
@@ -87,6 +97,10 @@ export interface RepositorySettings {
   max_input_tokens: number;
   chunk_tokens: number;
   post_when_no_findings: boolean;
+  profile: ProfileId;
+  review_on_push: boolean;
+  check_runs: boolean;
+  gate_severity: Severity | "";
   updated_at: string;
 }
 
@@ -113,7 +127,7 @@ export interface ReviewRunSummary {
   id: number;
   status: ReviewStatus;
   status_reason: string;
-  trigger: "webhook" | "manual";
+  trigger: "webhook" | "manual" | "push";
   head_sha: string;
   created_at: string;
   finished_at: string | null;
@@ -186,6 +200,9 @@ export interface ReviewRun extends ReviewRunSummary {
   files_ignored: IgnoredFile[];
   findings: Finding[];
   created_by_email: string | null;
+  incremental: boolean;
+  compare_base_sha: string;
+  profile: ProfileId;
 }
 
 export interface WebhookDelivery {
