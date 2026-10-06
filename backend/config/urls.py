@@ -6,6 +6,7 @@ from apps.accounts import views as accounts
 from apps.audit import views as audit
 from apps.core import views as core
 from apps.credentials import views as credentials
+from apps.notifications import views as notifications
 from apps.repositories import views as repositories
 from apps.reviews import views as reviews
 from apps.webhooks import views as webhooks
@@ -22,6 +23,9 @@ router.register("invites", accounts.InviteViewSet, basename="invite")
 router.register("audit-events", audit.AuditEventViewSet, basename="audit-event")
 router.register("auth/tokens", accounts.ApiTokenViewSet, basename="api-token")
 router.register("model-prices", credentials.ModelPriceViewSet, basename="model-price")
+router.register(
+    "notification-channels", notifications.NotificationChannelViewSet, basename="notification-channel"
+)
 
 api_v1: list[URLPattern | URLResolver] = [
     path("auth/csrf", accounts.CsrfView.as_view()),

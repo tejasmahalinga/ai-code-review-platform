@@ -107,6 +107,9 @@ def check_thresholds(credential: LLMCredential) -> list[int]:
         )
         logger.warning("budget.threshold_reached", credential_id=credential.pk, threshold=threshold)
         _notify_admins(credential, threshold, current)
+        from apps.notifications import services as notifications
+
+        notifications.on_budget_threshold(credential, threshold, current, month.isoformat()[:7])
     return fired
 
 

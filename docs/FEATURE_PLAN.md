@@ -9,7 +9,10 @@
 >   rules, RE-15 `.reviewbot.yml`, RE-17 PR comment commands, REPO-03 base-branch filters, RE-12 risk score, RE-13 test suggestions, RE-16 feedback,
 >   PR-04 run comparison, PR-05 severity/risk filters and search, ADM-02 roles and invites, ADM-03 sign in with
 >   GitHub, ADM-04 audit log, KEY-05 pricing and monthly budgets, ADM-05 usage and cost analytics with CSV export,
->   ADM-06 personal API tokens. Also a Helm chart for Kubernetes (`deploy/helm/reviewbot`).
+>   ADM-06 personal API tokens, INT-04 Slack, INT-05 email and INT-07 signed webhook notifications plus a weekly
+>   digest. Also a Helm chart for Kubernetes (`deploy/helm/reviewbot`).
+> - Notifications are per channel (Slack webhook, email list, signed webhook), not per-user opt-in. Events are high-risk
+>   review, failed review, budget threshold, and weekly digest; deliveries are retried up to 4 attempts.
 > - Re-runs and finding triage need the reviewer role; keys, integrations and users need admin (ADM-02).
 > - Cost is computed from an editable price table; calls to models without a price are recorded as "unpriced".
 

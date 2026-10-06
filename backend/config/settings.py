@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import dj_database_url
+from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 
 from apps.core.logging import configure_logging
@@ -71,6 +72,7 @@ INSTALLED_APPS = [
     "apps.webhooks",
     "apps.reviews",
     "apps.audit",
+    "apps.notifications",
 ]
 
 MIDDLEWARE = [
@@ -195,6 +197,15 @@ CELERY_BEAT_SCHEDULE = {
     "reap-stuck-reviews": {"task": "apps.reviews.tasks.reap_stuck_runs", "schedule": 300.0},
     "prune-webhook-deliveries": {"task": "apps.webhooks.tasks.prune_deliveries", "schedule": 3600.0},
     "prune-audit-events": {"task": "apps.audit.tasks.prune_audit_events", "schedule": 86400.0},
+    "weekly-digest": {
+        "task": "apps.notifications.tasks.weekly_digest",
+        # Mondays 08:52 UTC by default (off the hour to avoid scheduler pile-ups).
+        "schedule": crontab(
+            minute=env("REVIEWBOT_DIGEST_MINUTE", "52") or "52",
+            hour=env("REVIEWBOT_DIGEST_HOUR", "8") or "8",
+            day_of_week=env("REVIEWBOT_DIGEST_DAY", "mon") or "mon",
+        ),
+    },
 }
 
 # --- Reviewbot ----------------------------------------------------------------------------------
@@ -216,6 +227,8 @@ REVIEWBOT_PUSH_DEBOUNCE_SECONDS = env_int("REVIEWBOT_PUSH_DEBOUNCE_SECONDS", 60)
 WEBHOOK_RETENTION_DAYS = env_int("REVIEWBOT_WEBHOOK_RETENTION_DAYS", 30)
 AUDIT_RETENTION_DAYS = env_int("REVIEWBOT_AUDIT_RETENTION_DAYS", 365)
 INVITE_TTL_HOURS = env_int("REVIEWBOT_INVITE_TTL_HOURS", 72)
+# Allow notification webhooks to private addresses and plain http. Off by default (SSRF protection).
+ALLOW_PRIVATE_WEBHOOKS = env_bool("REVIEWBOT_ALLOW_PRIVATE_WEBHOOKS", False)
 
 # --- Sign-in with GitHub (ADM-03) ---------------------------------------------------------------
 # Uses the GitHub App's OAuth client by default; set these to use a separate OAuth App instead.

@@ -27,6 +27,8 @@ def run_review(self, run_id: int) -> str | None:
                 error=f"Gave up after {MAX_RETRIES} retries: {exc}",
                 finished_at=timezone.now(),
             )
+            run = ReviewRun.objects.select_related("pull_request__repository").get(pk=run_id)
+            pipeline._notify(run, logger)
             return ReviewRun.Status.FAILED
         logger.info("review.retry_scheduled", review_run_id=run_id, countdown=exc.countdown)
         raise self.retry(countdown=min(exc.countdown, 3600), exc=exc) from exc

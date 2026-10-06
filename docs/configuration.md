@@ -24,6 +24,8 @@ All configuration is read from environment variables (`deploy/.env` with Docker 
 | `REVIEWBOT_SESSION_AGE_SECONDS` | `1209600` (14 days) | Dashboard session lifetime. |
 | `REVIEWBOT_LOGIN_RATE` | `5/min` | Failed logins allowed per IP and email. |
 | `REVIEWBOT_INVITE_TTL_HOURS` | `72` | How long an invite link stays valid. |
+| `REVIEWBOT_ALLOW_PRIVATE_WEBHOOKS` | `false` | Allow notification webhooks to private or internal addresses, and plain `http://`. |
+| `REVIEWBOT_DIGEST_DAY` / `_HOUR` / `_MINUTE` | `mon` / `8` / `52` | When the weekly digest is sent (UTC, cron fields). |
 | `REVIEWBOT_AUDIT_RETENTION_DAYS` | `365` | Audit events older than this are deleted daily. |
 | `DJANGO_DEBUG` | `false` | Never enable in production. |
 
@@ -253,3 +255,41 @@ Every user can create personal API tokens under **Account → API tokens**. Send
 curl -H "Authorization: Bearer $REVIEWBOT_TOKEN" \
   "https://reviewbot.example.com/api/v1/usage?group_by=day,repository&export=csv" -o usage.csv
 ```
+
+## Notifications
+
+Admins add channels under **Notifications** (`/api/v1/notification-channels`). Each channel picks its events:
+
+| Event | When |
+|---|---|
+| High-risk pull requests | A review finishes with a risk score of at least the channel's threshold (default 60), or with a reported finding at or above its severity (default critical). Can be limited to some repositories. |
+| Failed reviews | A review fails: LLM errors, an invalid key, GitHub errors, or retries exhausted. |
+| LLM budget alerts | A key reaches 80% or 100% of its monthly budget. |
+| Weekly digest | Mondays (configurable). Reviews, findings by severity, triage, LLM cost, and the five riskiest PRs. |
+
+Channel types:
+
+- **Slack**: an [incoming webhook](https://api.slack.com/messaging/webhooks) URL (`https://hooks.slack.com/...`). PR titles
+  and other user text are escaped, so they cannot trigger `@channel` mentions or inject links.
+- **Email**: a list of recipients; needs SMTP (`REVIEWBOT_EMAIL_*`).
+- **Webhook**: a JSON `POST` to any HTTPS URL (for example a Microsoft Teams workflow or your own service):
+
+  ```json
+  {"event": "review.high_risk", "title": "...", "text": "...", "url": "https://reviewbot.example.com/reviews/42",
+   "level": "danger", "data": {"repository": "acme/app", "number": 7, "risk_score": 72, "findings": {"critical": 1}},
+   "sent_at": "2026-10-06T11:28:51+00:00"}
+  ```
+
+  Headers: `X-Reviewbot-Event`, and with a signing secret, `X-Reviewbot-Signature-256: sha256=<hex HMAC-SHA256 of the
+  raw body>`. Verify it with a constant-time comparison, as for GitHub webhooks.
+
+Delivery details:
+
+- Messages are sent by the worker. Network errors, HTTP 429 and 5xx are retried with backoff, up to 4 attempts.
+  Other errors fail immediately.
+- Each channel shows its last 50 deliveries, and **Send test** sends a sample message right away.
+- Every event is sent at most once per channel: once per review run, budget threshold and month, or digest week.
+- URLs and secrets are encrypted at rest and never returned by the API.
+- For SSRF protection, URLs must be HTTPS and resolve to public addresses, checked both on save and on every send.
+  Redirects are not followed. Set `REVIEWBOT_ALLOW_PRIVATE_WEBHOOKS=true` for on-premise targets.
+- Without any channel, admins still get budget alerts by email when SMTP is configured.

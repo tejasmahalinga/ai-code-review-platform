@@ -26,6 +26,7 @@ from apps.git_providers import registry as git_registry
 from apps.git_providers.base import ChangedFile, GitProvider, GitProviderError, InlineComment
 from apps.git_providers.github.client import InlineCommentsRejected
 from apps.llm.base import AuthenticationFailed, InvalidResponse, LLMError, LLMProvider, TokenUsage
+from apps.notifications import services as notifications
 from apps.repositories.models import SEVERITY_RANK
 from apps.reviews.engine import prompts, render
 from apps.reviews.engine.chunker import Chunk, build_chunks, estimate_tokens
@@ -128,7 +129,15 @@ def execute(
         run.error = f"Internal error during '{run.stage}': {type(exc).__name__}"
         _finish(run, Status.FAILED, reason="internal_error")
     _complete_check(run, provider, log)
+    _notify(run, log)
     return run
+
+
+def _notify(run: ReviewRun, log: Any) -> None:
+    try:
+        notifications.on_review_finished(run)
+    except Exception:  # notifications must never fail a review
+        log.exception("notification.dispatch_failed")
 
 
 def _set_stage(run: ReviewRun, stage: str) -> None:

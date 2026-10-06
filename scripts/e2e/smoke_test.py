@@ -153,6 +153,38 @@ def cost_checks() -> None:
     expect(body.splitlines()[0].startswith("day,model,reviews,requests"), "CSV has the expected columns")
 
 
+def notification_checks(pull_request_id: int) -> None:
+    """Batch D: a signed webhook channel receives a high-risk review notification."""
+    hook_url = os.environ.get("NOTIFY_URL", "http://fake-github:9000/_notify")
+    status, created = call(
+        "POST",
+        "/api/v1/notification-channels",
+        {
+            "name": "e2e hook",
+            "kind": "webhook",
+            "url": hook_url,
+            "secret": "e2e-signing-secret",
+            "events": ["review.high_risk", "review.failed"],
+            "min_risk": 0,
+        },
+    )
+    expect(status == 201, f"notification channel created ({status} {created})")
+    status, result = call("POST", f"/api/v1/notification-channels/{created['id']}/test")
+    expect(result == {"ok": True, "error": ""}, f"test notification delivered ({result})")
+
+    status, rerun = call("POST", f"/api/v1/pull-requests/{pull_request_id}/reviews")
+    expect(status == 201, f"review re-run for notifications ({status})")
+
+    def high_risk_notification():
+        with urllib.request.urlopen(f"{FAKE_GITHUB}/_notifications", timeout=10) as response:  # noqa: S310
+            items = json.loads(response.read())
+        return next((n for n in items if n["body"]["event"] == "review.high_risk"), None)
+
+    note = wait_for(high_risk_notification, "high-risk notification")
+    expect(note["body"]["data"]["review_id"] == rerun["id"], "notification names the review")
+    expect(note["headers"].get("x-reviewbot-signature-256", "").startswith("sha256="), "notification is signed")
+
+
 def private_key() -> str:
     return subprocess.run(
         ["openssl", "genrsa", "2048"], check=True, capture_output=True, text=True
@@ -301,6 +333,7 @@ def main() -> None:
 
     team_checks()
     cost_checks()
+    notification_checks(run["pull_request"]["id"])
     print("\nEnd-to-end smoke test passed.")
 
 

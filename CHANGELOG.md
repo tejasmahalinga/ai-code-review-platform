@@ -14,8 +14,17 @@ All notable changes to this project are documented here. The format follows
   still run reviews by hand.
 - **Usage and cost page (ADM-05):** cost, reviews, tokens, budgets, a daily cost chart, and breakdowns by repository
   and model. `GET /api/v1/usage` gains `cost_usd`, `unpriced`, `reviews`, and `&export=csv`.
+- **Notifications (INT-04, INT-05, INT-07):** Slack, email, and signed JSON webhook channels for high-risk pull
+  requests (risk or severity thresholds, optional repository filter), failed reviews, budget alerts, and a weekly
+  digest. Includes delivery logs, test sends, retries, at-most-once delivery per event, encrypted URLs, and SSRF
+  protection. New **Notifications** page.
 - **Personal API tokens (ADM-06):** `Authorization: Bearer rbt_…`. A token acts with its owner's role, has an
   optional expiry, is hashed at rest, and cannot mint more tokens.
+
+### Changed
+- Release notes are generated from this changelog, and release images carry an SBOM and provenance attestation.
+  CI and releases scan the images with Trivy, and CI audits production npm dependencies. Dependabot is enabled,
+  and the GitHub Actions now run on Node 24.
 
 ## [0.2.0] — 2026-10-06
 

@@ -392,3 +392,39 @@ export const REVIEWER_SETTINGS_FIELDS: string[] = [
   "suggest_tests",
   "post_when_no_findings",
 ];
+
+export type NotificationKind = "slack" | "email" | "webhook";
+
+export interface NotificationChannel {
+  id: number;
+  name: string;
+  kind: NotificationKind;
+  enabled: boolean;
+  url_hint: string;
+  has_secret: boolean;
+  recipients: string[];
+  events: string[];
+  min_risk: number;
+  min_severity: Severity | "";
+  repositories: number[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationDelivery {
+  id: number;
+  event: string;
+  title: string;
+  status: "pending" | "sent" | "failed";
+  error: string;
+  attempts: number;
+  created_at: string;
+  sent_at: string | null;
+}
+
+export const NOTIFICATION_EVENTS: { id: string; label: string; hint: string }[] = [
+  { id: "review.high_risk", label: "High-risk pull requests", hint: "Risk score or a finding reaches the thresholds below." },
+  { id: "review.failed", label: "Failed reviews", hint: "A review could not finish (LLM errors, invalid key, GitHub errors)." },
+  { id: "budget.threshold", label: "LLM budget alerts", hint: "A key reaches 80% or 100% of its monthly budget." },
+  { id: "digest.weekly", label: "Weekly digest", hint: "Mondays: reviews, findings, triage, cost and the riskiest PRs." },
+];

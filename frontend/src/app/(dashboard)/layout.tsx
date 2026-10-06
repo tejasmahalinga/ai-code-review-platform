@@ -14,6 +14,7 @@ const NAV = [
   { href: "/settings/keys", label: "LLM keys", admin: true },
   { href: "/settings/usage", label: "Usage", admin: true },
   { href: "/settings/integrations", label: "Integrations", admin: true },
+  { href: "/settings/notifications", label: "Notifications", admin: true },
   { href: "/settings/team", label: "Team", admin: true },
   { href: "/settings/audit", label: "Audit log", admin: true },
 ];
