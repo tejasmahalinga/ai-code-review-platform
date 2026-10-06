@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — v0.2.0
+## [0.2.0] — 2026-10-06
 
 ### Added
 - **Incremental reviews on push (RE-10):** `synchronize` events queue a debounced review of only the changes

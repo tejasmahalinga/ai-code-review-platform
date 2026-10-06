@@ -60,10 +60,12 @@ Kubernetes API token. They only need outbound HTTPS to GitHub and to your LLM pr
    **Back up `REVIEWBOT_ENCRYPTION_KEYS`.** Without it, the stored LLM keys and GitHub App credentials cannot be
    decrypted.
 
-2. Install the chart:
+2. Install the chart. Each release publishes it to GHCR as an OCI chart:
+   `oci://ghcr.io/tejasmahalinga/charts/reviewbot --version 0.2.0`. From a checkout you can use
+   `./deploy/helm/reviewbot` instead.
 
    ```bash
-   helm install reviewbot ./deploy/helm/reviewbot -n reviewbot \
+   helm install reviewbot oci://ghcr.io/tejasmahalinga/charts/reviewbot --version 0.2.0 -n reviewbot \
      --set publicUrl=https://reviewbot.example.com \
      --set ingress.host=reviewbot.example.com \
      --set ingress.className=nginx \
