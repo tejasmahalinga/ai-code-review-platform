@@ -72,6 +72,7 @@ All configuration is read from environment variables (`deploy/.env` with Docker 
 | Fail the check at | never | Severity at or above which the check concludes `failure`. |
 | Base branches | all | Globs such as `main` or `release/*`. Auto-reviews only run for PRs into matching branches; comment commands always work. |
 | Rules | none | Team rules: id, description, severity, and optional path globs (see below). |
+| Ask for tests | on | When source files change without test changes, the model is asked for a `test` finding (capped at medium). |
 | Review drafts | off | Also review draft PRs. |
 | LLM key / model override | first valid key / key default | Which credential and model to use. |
 | Minimum severity | `low` | Findings below it are stored but not posted. |
@@ -134,4 +135,22 @@ Comment on a pull request with one of these on the first line:
 
 Only commenters GitHub reports as the repository owner, an organization member, or a collaborator can run
 commands. Other comments, and comments from bots, are ignored. The repository must be enabled in Reviewbot.
+
+## Risk score
+
+Every completed review gets a deterministic risk score from 0 to 100, shown in the PR summary, the check run, and
+the dashboard. Buckets are low (< 30), medium (30-59), and high (60+). The score adds up:
+
+- **Findings:** reported findings, at critical 30, high 15, medium 6, low 2, info 0, capped at 60.
+- **Size:** changed lines, at 50+ → 3, 200+ → 6, 500+ → 10, 1000+ → 15.
+- **Sensitive paths**, each category once: CI workflows +15, auth/security code +15, database migrations +10,
+  container/deployment files +10, dependency manifests +5, settings/config files +5.
+
+## Feedback
+
+On a review page, each finding can be **accepted**, **dismissed** (false positive, won't fix, duplicate, other), or
+voted 👍/👎. A dismissed finding is not posted again on later reviews of the same pull request; it shows as
+"Dismissed on an earlier run". The repository settings page shows acceptance and false-positive rates per category
+(also at `GET /api/v1/feedback-stats?repository=<id>`). Feedback is collected only; it does not tune prompts
+automatically.
 

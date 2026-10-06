@@ -185,6 +185,9 @@ class RepositorySettings(models.Model):
         help_text="Only auto-review PRs whose base branch matches one of these globs (empty = all).",
     )
     rules = models.JSONField(default=list, blank=True, help_text="Structured review rules (RE-14).")
+    suggest_tests = models.BooleanField(
+        default=True, help_text="Ask for tests when source changes lack them."
+    )
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -220,4 +223,5 @@ class RepositorySettings(models.Model):
             "gate_severity": self.gate_severity,
             "base_branch_patterns": list(self.base_branch_patterns),
             "rules": list(self.rules),
+            "suggest_tests": self.suggest_tests,
         }

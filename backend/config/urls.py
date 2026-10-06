@@ -14,6 +14,7 @@ router.register("llm-credentials", credentials.LLMCredentialViewSet, basename="l
 router.register("repositories", repositories.RepositoryViewSet, basename="repository")
 router.register("pull-requests", reviews.PullRequestViewSet, basename="pull-request")
 router.register("reviews", reviews.ReviewRunViewSet, basename="review")
+router.register("findings", reviews.FindingViewSet, basename="finding")
 router.register("webhook-deliveries", webhooks.WebhookDeliveryViewSet, basename="webhook-delivery")
 
 api_v1: list[URLPattern | URLResolver] = [
@@ -32,6 +33,7 @@ api_v1: list[URLPattern | URLResolver] = [
     path("integrations/github/sync", repositories.GitHubSyncView.as_view()),
     path("usage", reviews.UsageView.as_view()),
     path("review-profiles", reviews.ReviewProfilesView.as_view()),
+    path("feedback-stats", reviews.FeedbackStatsView.as_view()),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("", include(router.urls)),
 ]

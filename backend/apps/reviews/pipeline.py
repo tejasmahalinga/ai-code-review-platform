@@ -39,7 +39,9 @@ from apps.reviews.engine.repo_config import (
     parse_config_file,
     render_rules,
 )
+from apps.reviews.engine.risk import compute_risk
 from apps.reviews.engine.schema import REVIEW_SCHEMA, ChunkReview, RawFinding, SchemaError, parse_review
+from apps.reviews.engine.test_gaps import MAX_TEST_SEVERITY, TEST_PROMPT, needs_test_suggestions
 from apps.reviews.models import Finding, LLMUsage, PullRequest, ReviewRun
 
 logger = get_logger(__name__)
@@ -242,8 +244,12 @@ def _run(run: ReviewRun, *, git: GitProvider, llm: LLMProvider | None, log: Any)
 
     # 3. Chunk
     _set_stage(run, Stage.CHUNK)
+    pr_paths = [f.path for f in files]
+    wants_tests = bool(snap.get("suggest_tests", True)) and needs_test_suggestions(pr_paths)
     system_prompt = prompts.build_system_prompt(
-        snap.get("custom_instructions", ""), profile=get_profile(snap.get("profile"))
+        snap.get("custom_instructions", ""),
+        profile=get_profile(snap.get("profile")),
+        extra_sections=[TEST_PROMPT] if wants_tests else None,
     )
     overhead = estimate_tokens(system_prompt) + 200
     budget = max(snap["chunk_tokens"] - overhead, 1_000)
@@ -283,7 +289,11 @@ def _run(run: ReviewRun, *, git: GitProvider, llm: LLMProvider | None, log: Any)
     findings = _build_findings(run, results, by_path, snap)
     summaries = [r.review.summary for r in results if r.review and r.review.summary]
     run.summary = "\n\n".join(summaries)
-    run.save(update_fields=["summary", "chunks_failed"])
+    reported = [f.severity for f in findings if f.post_status in REPORTED_FOR_GATE]
+    run.risk_score = compute_risk(
+        reported, pr_paths, sum(d.additions + d.deletions for d in anchor_diffs)
+    ).score
+    run.save(update_fields=["summary", "chunks_failed", "risk_score"])
 
     # 6. Post
     _set_stage(run, Stage.POST_COMMENTS)
@@ -384,7 +394,8 @@ def check_outcome(run: ReviewRun) -> tuple[str, str, str]:
             run.findings.filter(post_status__in=REPORTED_FOR_GATE).values_list("severity", flat=True)
         )
         counts = render.counts_line({s: reported.count(s) for s in render.SEVERITY_ORDER})
-        summary = f"{counts}\n\n{link}"
+        risk = f" · risk {run.risk_score}/100" if run.risk_score is not None else ""
+        summary = f"{counts}{risk}\n\n{link}"
         if not reported:
             return "success", "No issues found", summary
         gate = run.settings_snapshot.get("gate_severity")
@@ -567,6 +578,12 @@ def _build_findings(
         .exclude(review_run=run)
         .values_list("fingerprint", flat=True)
     )
+    dismissed = set(
+        Finding.objects.filter(review_run__pull_request=run.pull_request, state=Finding.State.DISMISSED)
+        .exclude(review_run=run)
+        .values_list("fingerprint", flat=True)
+    )
+    suggest_tests = bool(snap.get("suggest_tests", True))
     min_rank = SEVERITY_RANK[snap.get("min_severity", "low")]
     allowed_categories = get_profile(snap.get("profile")).allowed_categories
     rules = {r["id"]: r for r in snap.get("rules", []) if r.get("enabled", True)}
@@ -582,6 +599,8 @@ def _build_findings(
             severity = raw.severity
             if rule and SEVERITY_RANK[rule["severity"]] > SEVERITY_RANK[severity]:
                 severity = rule["severity"]
+            if raw.category == "test" and SEVERITY_RANK[severity] > SEVERITY_RANK[MAX_TEST_SEVERITY]:
+                severity = MAX_TEST_SEVERITY
             anchored, start, end = _anchor(raw, diff)
             context = diff.context_around(end or raw.line_end) if diff else ""
             fp = fingerprint(raw.path, raw.category, raw.title, context)
@@ -600,7 +619,10 @@ def _build_findings(
                 body=raw.body,
                 suggestion=raw.suggestion,
             )
-            if allowed_categories is not None and raw.category not in allowed_categories:
+            if fp in dismissed:
+                finding.post_status = PostStatus.DISMISSED_EARLIER
+                finding.state = Finding.State.DISMISSED
+            elif not _category_allowed(raw.category, allowed_categories, suggest_tests):
                 finding.post_status = PostStatus.CATEGORY_FILTERED
             elif SEVERITY_RANK[severity] < min_rank:
                 finding.post_status = PostStatus.BELOW_THRESHOLD
@@ -625,6 +647,12 @@ def _build_findings(
             f.post_status = PostStatus.CAP_EXCEEDED
     Finding.objects.bulk_create(findings)
     return findings
+
+
+def _category_allowed(category: str, allowed: frozenset[str] | None, suggest_tests: bool) -> bool:
+    if category == "test" and not suggest_tests:
+        return False
+    return allowed is None or category in allowed
 
 
 def _post(
@@ -667,6 +695,7 @@ def _post(
                 model=run.model,
                 head_sha=run.head_sha,
                 dashboard_url=dashboard_url(run),
+                risk_score=run.risk_score,
                 scope_note=" ".join(
                     note
                     for note in (

@@ -147,6 +147,12 @@ def main() -> None:
     expect(any(f["path"] == "package-lock.json" for f in run["files_ignored"]), "lockfile ignored")
     expect(run["input_tokens"] > 0, "token usage recorded")
     expect(run["config_source"] == ".reviewbot.yml" and not run["config_error"], ".reviewbot.yml from base applied")
+    expect(isinstance(run["risk_score"], int) and run["risk_score"] >= 30, f"risk score recorded ({run['risk_score']})")
+    todo = next(f for f in run["findings"] if f["title"] == "Unresolved TODO")
+    status, data = call("PATCH", f"/api/v1/findings/{todo['id']}", {"state": "dismissed", "dismiss_reason": "wont_fix"})
+    expect(status == 200 and data["state"] == "dismissed", "finding dismissed")
+    status, data = call("PUT", f"/api/v1/findings/{todo['id']}/feedback", {"vote": "down"})
+    expect(status == 200 and data["votes"]["down"] == 1, "feedback vote recorded")
 
     with urllib.request.urlopen(f"{FAKE_GITHUB}/_posted", timeout=10) as response:  # noqa: S310
         posted = json.loads(response.read())
@@ -160,6 +166,11 @@ def main() -> None:
     with urllib.request.urlopen(f"{FAKE_GITHUB}/_posted", timeout=10) as response:  # noqa: S310
         posted = json.loads(response.read())
     expect(len(posted) == 2 and posted[1]["comments"] == [], "re-run did not duplicate inline comments")
+    status, rerun_detail = call("GET", f"/api/v1/reviews/{rerun['id']}")
+    statuses = {f["title"]: f["post_status"] for f in rerun_detail["findings"]}
+    expect(statuses.get("Unresolved TODO") == "dismissed_earlier", "dismissed finding stays dismissed on re-run")
+    status, diff = call("GET", f"/api/v1/reviews/{rerun['id']}/compare?with={run['id']}")
+    expect(status == 200 and "unchanged" in diff, "runs can be compared")
 
     with urllib.request.urlopen(f"{FAKE_GITHUB}/_checks", timeout=10) as response:  # noqa: S310
         checks = json.loads(response.read())

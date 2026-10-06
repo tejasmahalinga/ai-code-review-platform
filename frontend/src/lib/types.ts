@@ -111,6 +111,7 @@ export interface RepositorySettings {
   gate_severity: Severity | "";
   base_branch_patterns: string[];
   rules: ReviewRule[];
+  suggest_tests: boolean;
   updated_at: string;
 }
 
@@ -143,6 +144,7 @@ export interface ReviewRunSummary {
   finished_at: string | null;
   counts: SeverityCounts;
   posted_count: number;
+  risk_score: number | null;
 }
 
 export interface PullRequest {
@@ -177,6 +179,10 @@ export interface Finding {
   provider_comment_url: string;
   fingerprint: string;
   rule_id: string;
+  state: FindingState;
+  dismiss_reason: DismissReason | "";
+  state_changed_at: string | null;
+  votes: { up: number; down: number; mine: "up" | "down" | null };
 }
 
 export interface IgnoredFile {
@@ -231,3 +237,31 @@ export interface WebhookDelivery {
   review_run: number | null;
   received_at: string;
 }
+
+export type FindingState = "open" | "accepted" | "dismissed";
+export type DismissReason = "false_positive" | "wont_fix" | "duplicate" | "other";
+
+export interface RunComparison {
+  run: number;
+  with: number;
+  added: Finding[];
+  resolved: Finding[];
+  unchanged: number;
+}
+
+export interface FeedbackStat {
+  category: Category;
+  reported: number;
+  accepted: number;
+  dismissed: number;
+  false_positive: number;
+  up: number;
+  down: number;
+  acceptance_rate: number | null;
+}
+
+export function riskBucket(score: number | null | undefined): "low" | "medium" | "high" | null {
+  if (score === null || score === undefined) return null;
+  return score >= 60 ? "high" : score >= 30 ? "medium" : "low";
+}
+

@@ -18,7 +18,7 @@ import {
   errorMessage,
 } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
-import type { LLMCredential, Repository, RepositorySettings, ReviewProfile, ReviewRule } from "@/lib/types";
+import type { FeedbackStat, LLMCredential, Repository, RepositorySettings, ReviewProfile, ReviewRule } from "@/lib/types";
 import { SEVERITIES } from "@/lib/types";
 
 type FormState = Omit<
@@ -58,6 +58,7 @@ function toForm(s: RepositorySettings): FormState {
     ignore_text: s.ignore_patterns.join("\n"),
     branch_text: s.base_branch_patterns.join("\n"),
     rules: s.rules,
+    suggest_tests: s.suggest_tests,
   };
 }
 
@@ -175,6 +176,12 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
               hint="Only the changes since the last reviewed commit are sent to the LLM. Bursts of pushes are debounced."
               checked={form.review_on_push}
               onChange={(e) => update("review_on_push", e.target.checked)}
+            />
+            <Checkbox
+              label="Ask for tests when source code changes without tests"
+              hint="Adds a test-coverage request to the prompt; test findings are capped at medium severity."
+              checked={form.suggest_tests}
+              onChange={(e) => update("suggest_tests", e.target.checked)}
             />
             <Checkbox label="Also review draft pull requests" checked={form.review_drafts} onChange={(e) => update("review_drafts", e.target.checked)} />
             <Checkbox
@@ -333,6 +340,9 @@ function SettingsForm({ id, repo, initial }: { id: string; repo: Repository; ini
           </Button>
         </div>
       </form>
+      <div className="mt-8">
+        <FeedbackStats repositoryId={id} />
+      </div>
     </>
   );
 }
@@ -396,3 +406,51 @@ function RulesEditor({ rules, error, onChange }: { rules: ReviewRule[]; error?: 
     </div>
   );
 }
+
+function FeedbackStats({ repositoryId }: { repositoryId: string }) {
+  const stats = useQuery({
+    queryKey: ["feedback-stats", repositoryId],
+    queryFn: () => api<FeedbackStat[]>(`/feedback-stats?repository=${repositoryId}`),
+  });
+  return (
+    <Card title="Finding feedback">
+      {stats.isLoading ? (
+        <Spinner />
+      ) : !stats.data?.length ? (
+        <p className="text-sm text-slate-600">No findings yet. Accept, dismiss, or vote on findings from a review page.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="py-1 pr-4">Category</th>
+                <th className="py-1 pr-4">Reported</th>
+                <th className="py-1 pr-4">Accepted</th>
+                <th className="py-1 pr-4">Dismissed</th>
+                <th className="py-1 pr-4">False positives</th>
+                <th className="py-1 pr-4">👍 / 👎</th>
+                <th className="py-1 pr-4">Acceptance rate</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {stats.data.map((row) => (
+                <tr key={row.category}>
+                  <td className="py-1 pr-4 font-medium">{row.category}</td>
+                  <td className="py-1 pr-4">{row.reported}</td>
+                  <td className="py-1 pr-4">{row.accepted}</td>
+                  <td className="py-1 pr-4">{row.dismissed}</td>
+                  <td className="py-1 pr-4">{row.false_positive}</td>
+                  <td className="py-1 pr-4">
+                    {row.up} / {row.down}
+                  </td>
+                  <td className="py-1 pr-4">{row.acceptance_rate === null ? "—" : `${Math.round(row.acceptance_rate * 100)}%`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+

@@ -5,7 +5,7 @@ from typing import Any
 from rest_framework import serializers
 
 from apps.reviews.engine.profiles import DEFAULT_PROFILE
-from apps.reviews.models import Finding, PullRequest, ReviewRun
+from apps.reviews.models import Finding, FindingFeedback, PullRequest, ReviewRun
 
 SEVERITIES = ["critical", "high", "medium", "low", "info"]
 # Findings that count as "reported" for the PR (excludes ones filtered by threshold/confidence).
@@ -45,6 +45,7 @@ class ReviewRunSummarySerializer(serializers.ModelSerializer[ReviewRun]):
             "finished_at",
             "counts",
             "posted_count",
+            "risk_score",
         ]
 
     def get_counts(self, obj: ReviewRun) -> dict[str, int]:
@@ -91,6 +92,7 @@ class PullRequestSerializer(serializers.ModelSerializer[PullRequest]):
 
 class FindingSerializer(serializers.ModelSerializer[Finding]):
     post_status_label = serializers.CharField(source="get_post_status_display", read_only=True)
+    votes = serializers.SerializerMethodField()
 
     class Meta:
         model = Finding
@@ -111,7 +113,38 @@ class FindingSerializer(serializers.ModelSerializer[Finding]):
             "provider_comment_url",
             "fingerprint",
             "rule_id",
+            "state",
+            "dismiss_reason",
+            "state_changed_at",
+            "votes",
         ]
+
+    def get_votes(self, obj: Finding) -> dict[str, Any]:
+        request = self.context.get("request")
+        user_id = getattr(getattr(request, "user", None), "pk", None)
+        feedback = list(obj.feedback.all())
+        mine = next((f.vote for f in feedback if f.user_id == user_id), None)
+        return {
+            "up": sum(1 for f in feedback if f.vote == FindingFeedback.Vote.UP),
+            "down": sum(1 for f in feedback if f.vote == FindingFeedback.Vote.DOWN),
+            "mine": mine,
+        }
+
+
+class FindingStateSerializer(serializers.Serializer[Any]):
+    state = serializers.ChoiceField(choices=Finding.State.choices)
+    dismiss_reason = serializers.ChoiceField(choices=Finding.DismissReason.choices, required=False)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["state"] == Finding.State.DISMISSED:
+            attrs.setdefault("dismiss_reason", Finding.DismissReason.OTHER)
+        else:
+            attrs["dismiss_reason"] = ""
+        return attrs
+
+
+class FeedbackVoteSerializer(serializers.Serializer[Any]):
+    vote = serializers.ChoiceField(choices=FindingFeedback.Vote.choices)
 
 
 class ReviewRunSerializer(ReviewRunSummarySerializer):

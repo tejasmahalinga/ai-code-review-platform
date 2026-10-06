@@ -10,7 +10,9 @@ import {
   Button,
   Empty,
   Field,
+  Input,
   PageHeader,
+  RiskBadge,
   Select,
   SeverityBadge,
   Spinner,
@@ -41,6 +43,9 @@ function PullRequests() {
     repository: params.get("repository") ?? "",
     state: params.get("state") ?? "open",
     review_status: params.get("review_status") ?? "",
+    min_severity: params.get("min_severity") ?? "",
+    risk: params.get("risk") ?? "",
+    q: params.get("q") ?? "",
   };
 
   const setFilter = (key: keyof typeof filters, value: string) => {
@@ -67,7 +72,7 @@ function PullRequests() {
   return (
     <>
       <PageHeader title="Pull requests" description="Every pull request Reviewbot has seen, across all repositories." />
-      <div className="mb-4 grid max-w-3xl gap-3 sm:grid-cols-3">
+      <div className="mb-4 grid max-w-6xl gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Field label="Repository">
           <Select value={filters.repository} onChange={(e) => setFilter("repository", e.target.value)}>
             <option value="">All repositories</option>
@@ -84,6 +89,35 @@ function PullRequests() {
             <option value="open">Open</option>
             <option value="closed,merged">Closed or merged</option>
           </Select>
+        </Field>
+        <Field label="Severity at least">
+          <Select value={filters.min_severity} onChange={(e) => setFilter("min_severity", e.target.value)}>
+            <option value="">Any</option>
+            {SEVERITIES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Risk">
+          <Select value={filters.risk} onChange={(e) => setFilter("risk", e.target.value)}>
+            <option value="">Any</option>
+            <option value="high">High (60+)</option>
+            <option value="medium">Medium (30–59)</option>
+            <option value="low">Low (&lt;30)</option>
+          </Select>
+        </Field>
+        <Field label="Search">
+          <Input
+            type="search"
+            defaultValue={filters.q}
+            placeholder="Title, author, finding"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") setFilter("q", (e.target as HTMLInputElement).value.trim());
+            }}
+            onBlur={(e) => setFilter("q", e.target.value.trim())}
+          />
         </Field>
         <Field label="Latest review">
           <Select value={filters.review_status} onChange={(e) => setFilter("review_status", e.target.value)}>
@@ -115,6 +149,7 @@ function PullRequests() {
                 <th className="px-4 py-2">State</th>
                 <th className="px-4 py-2">Latest review</th>
                 <th className="px-4 py-2">Findings</th>
+                <th className="px-4 py-2">Risk</th>
                 <th className="px-4 py-2">Updated</th>
               </tr>
             </thead>
@@ -157,6 +192,9 @@ function PullRequests() {
                     ) : (
                       "—"
                     )}
+                  </td>
+                  <td className="px-4 py-2">
+                    <RiskBadge score={pr.latest_review?.risk_score} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 text-slate-600">{formatDate(pr.updated_at)}</td>
                 </tr>

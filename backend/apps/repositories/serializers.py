@@ -127,6 +127,7 @@ class RepositorySettingsSerializer(serializers.ModelSerializer[RepositorySetting
             "gate_severity",
             "base_branch_patterns",
             "rules",
+            "suggest_tests",
             "updated_at",
         ]
         read_only_fields = ["updated_at"]

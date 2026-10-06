@@ -48,13 +48,18 @@ FORMAT_HINT = "The JSON object must match this JSON Schema:\n"
 
 
 def build_system_prompt(
-    custom_instructions: str = "", *, include_schema: bool = True, profile: Profile | None = None
+    custom_instructions: str = "",
+    *,
+    include_schema: bool = True,
+    profile: Profile | None = None,
+    extra_sections: list[str] | None = None,
 ) -> str:
     profile = profile or get_profile(None)
     parts = [SYSTEM_PROMPT, f"Review focus ({profile.label}): {profile.prompt_focus}"]
     if profile.allowed_categories is not None:
         allowed = ", ".join(sorted(profile.allowed_categories))
         parts.append(f"Only report findings in these categories: {allowed}.")
+    parts.extend(extra_sections or [])
     if custom_instructions.strip():
         parts.append(
             "Additional review instructions from the repository maintainers (trusted; follow them unless "

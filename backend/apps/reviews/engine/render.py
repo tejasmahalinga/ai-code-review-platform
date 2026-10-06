@@ -8,6 +8,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from apps.reviews.engine.risk import risk_bucket
+
 ZWJ = "‍"
 _MENTION = re.compile(r"(?<![\w`])@(?=[A-Za-z0-9])")
 _FENCE = re.compile(r"^(\s*)```", re.M)
@@ -77,6 +79,7 @@ class SummaryContext:
     head_sha: str
     dashboard_url: str
     scope_note: str = ""  # e.g. "Incremental review of changes since abc1234."
+    risk_score: int | None = None
 
 
 def summary_body(ctx: SummaryContext) -> str:
@@ -89,6 +92,8 @@ def summary_body(ctx: SummaryContext) -> str:
     elif summaries:
         lines += [f"- {s}" for s in summaries] + [""]
     lines += [f"**Findings:** {counts_line(severity_counts(ctx.reported))}", ""]
+    if ctx.risk_score is not None:
+        lines += [f"**Risk:** {ctx.risk_score}/100 ({risk_bucket(ctx.risk_score)})", ""]
 
     if ctx.in_summary:
         lines += ["### Findings outside the changed lines", ""]

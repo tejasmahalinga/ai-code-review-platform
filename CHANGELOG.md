@@ -22,6 +22,15 @@ All notable changes to this project are documented here. The format follows
   members and collaborators. The App manifest now subscribes to `issue_comment`.
 - **Base-branch filters (REPO-03):** limit auto-reviews to PRs into matching branches.
 
+- **Feedback (RE-16):** accept or dismiss findings (with a reason) and vote 👍/👎. Dismissed findings are not
+  re-posted on the same PR. Per-category acceptance stats are at `GET /api/v1/feedback-stats`.
+- **Risk score (RE-12):** a deterministic 0-100 score from findings, change size, and sensitive paths, shown in the
+  summary, the check run, and the dashboard.
+- **Test suggestions (RE-13):** when source changes come without tests, the model is asked for a test finding
+  (capped at medium). Can be turned off per repository.
+- **Run comparison (PR-04):** `GET /api/v1/reviews/{id}/compare?with={id}` lists new and resolved findings.
+- **PR filters (PR-05):** filter by minimum severity and risk bucket; search titles, authors, and finding titles.
+
 ### Fixed
 - Docker Compose: worker and beat now have healthchecks, so `docker compose up --wait` succeeds; gunicorn's
   control socket is disabled to avoid a permission error under the non-root user.

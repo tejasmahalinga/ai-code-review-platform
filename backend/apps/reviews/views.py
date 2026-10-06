@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
-from django.db.models import Count, OuterRef, Q, QuerySet, Subquery, Sum
+from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import TruncDay
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
@@ -16,13 +16,18 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.models import User
 from apps.accounts.permissions import IsAdmin, IsAdminOrReadOnly
 from apps.core.exceptions import Conflict
+from apps.repositories.models import SEVERITY_RANK
 from apps.reviews.engine.profiles import PROFILES
-from apps.reviews.models import Finding, LLMUsage, PullRequest, ReviewRun
+from apps.reviews.models import Finding, FindingFeedback, LLMUsage, PullRequest, ReviewRun
 from apps.reviews.serializers import (
     REPORTED_STATUSES,
     SEVERITIES,
+    FeedbackVoteSerializer,
+    FindingSerializer,
+    FindingStateSerializer,
     PullRequestSerializer,
     ReviewRunSerializer,
     ReviewRunSummarySerializer,
@@ -56,7 +61,9 @@ class PullRequestViewSet(
     def get_queryset(self) -> QuerySet[PullRequest]:
         latest = ReviewRun.objects.filter(pull_request=OuterRef("pk")).order_by("-created_at", "-id")
         qs = PullRequest.objects.select_related("repository").annotate(
-            latest_status=Subquery(latest.values("status")[:1])
+            latest_status=Subquery(latest.values("status")[:1]),
+            latest_run_id=Subquery(latest.values("id")[:1]),
+            latest_risk=Subquery(latest.values("risk_score")[:1]),
         )
         params = self.request.query_params
         if repo := params.get("repository"):
@@ -71,8 +78,29 @@ class PullRequestViewSet(
                 qs = qs.filter(Q(latest_status__in=statuses) | Q(latest_status__isnull=True))
             else:
                 qs = qs.filter(latest_status__in=statuses)
+        if min_severity := params.get("min_severity"):
+            if min_severity not in SEVERITY_RANK:
+                raise ValidationError({"min_severity": f"Choose from: {', '.join(SEVERITIES)}"})
+            severe = [s for s, rank in SEVERITY_RANK.items() if rank >= SEVERITY_RANK[min_severity]]
+            qs = qs.filter(
+                Exists(
+                    Finding.objects.filter(
+                        review_run_id=OuterRef("latest_run_id"),
+                        severity__in=severe,
+                        post_status__in=REPORTED_STATUSES,
+                    )
+                )
+            )
+        if risk := params.get("risk"):
+            buckets = {"low": (0, 29), "medium": (30, 59), "high": (60, 100)}
+            if risk not in buckets:
+                raise ValidationError({"risk": "Choose from: low, medium, high"})
+            qs = qs.filter(latest_risk__range=buckets[risk])
         if q := params.get("q"):
-            qs = qs.filter(Q(title__icontains=q) | Q(author_login__iexact=q))
+            matching_findings = Finding.objects.filter(
+                review_run__pull_request=OuterRef("pk"), title__icontains=q
+            )
+            qs = qs.filter(Q(title__icontains=q) | Q(author_login__iexact=q) | Exists(matching_findings))
         return qs
 
     def _latest_runs(self, prs: list[PullRequest]) -> dict[int, ReviewRun]:
@@ -133,7 +161,112 @@ class ReviewRunViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet[Review
     def get_queryset(self) -> QuerySet[ReviewRun]:
         return ReviewRun.objects.select_related(
             "pull_request__repository", "credential", "created_by"
-        ).prefetch_related("findings")
+        ).prefetch_related("findings__feedback")
+
+    @action(detail=True, methods=["get"])
+    def compare(self, request: Request, pk: str | None = None) -> Response:
+        """Findings added and resolved between this run and an earlier run of the same PR (by fingerprint)."""
+        run = self.get_object()
+        other_id = request.query_params.get("with", "")
+        if not other_id.isdigit():
+            raise ValidationError({"with": "Pass the id of another review of the same pull request."})
+        other = ReviewRun.objects.filter(pk=int(other_id), pull_request_id=run.pull_request_id).first()
+        if other is None:
+            raise ValidationError({"with": "Review not found for this pull request."})
+
+        def reported(r: ReviewRun) -> dict[str, Finding]:
+            # Dismissed findings still exist in the code, so they count as present (not "resolved").
+            statuses = [*REPORTED_STATUSES, Finding.PostStatus.DISMISSED_EARLIER]
+            qs = r.findings.filter(post_status__in=statuses).prefetch_related("feedback")
+            return {f.fingerprint: f for f in qs}
+
+        current, previous = reported(run), reported(other)
+        context = self.get_serializer_context()
+        return Response(
+            {
+                "run": run.pk,
+                "with": other.pk,
+                "added": FindingSerializer(
+                    [f for fp, f in current.items() if fp not in previous], many=True, context=context
+                ).data,
+                "resolved": FindingSerializer(
+                    [f for fp, f in previous.items() if fp not in current], many=True, context=context
+                ).data,
+                "unchanged": len(current.keys() & previous.keys()),
+            }
+        )
+
+
+class FindingViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet[Finding]):
+    """Accept/dismiss findings and vote on them (RE-16)."""
+
+    serializer_class = FindingSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "patch", "put", "delete"]
+
+    def get_queryset(self) -> QuerySet[Finding]:
+        return Finding.objects.select_related("review_run").prefetch_related("feedback")
+
+    @extend_schema(request=FindingStateSerializer, responses={200: FindingSerializer})
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        finding = self.get_object()
+        serializer = FindingStateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        finding.state = serializer.validated_data["state"]
+        finding.dismiss_reason = serializer.validated_data["dismiss_reason"]
+        finding.state_changed_by = cast(User, request.user)
+        finding.state_changed_at = timezone.now()
+        finding.save(update_fields=["state", "dismiss_reason", "state_changed_by", "state_changed_at"])
+        return Response(self.get_serializer(finding).data)
+
+    @extend_schema(request=FeedbackVoteSerializer, responses={200: FindingSerializer})
+    @action(detail=True, methods=["put", "delete"])
+    def feedback(self, request: Request, pk: str | None = None) -> Response:
+        finding = self.get_object()
+        user = cast(User, request.user)
+        if request.method == "DELETE":
+            FindingFeedback.objects.filter(finding=finding, user=user).delete()
+        else:
+            serializer = FeedbackVoteSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            FindingFeedback.objects.update_or_create(
+                finding=finding, user=user, defaults={"vote": serializer.validated_data["vote"]}
+            )
+        finding = self.get_queryset().get(pk=finding.pk)
+        return Response(self.get_serializer(finding).data)
+
+
+class FeedbackStatsView(APIView):
+    """Acceptance and helpfulness of findings by category (RE-16 analytics)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        qs = Finding.objects.filter(post_status__in=REPORTED_STATUSES)
+        if repo := request.query_params.get("repository"):
+            if not repo.isdigit():
+                raise ValidationError({"repository": "Must be a repository id."})
+            qs = qs.filter(review_run__pull_request__repository_id=int(repo))
+        rows = (
+            qs.values("category")
+            .annotate(
+                reported=Count("id", distinct=True),
+                accepted=Count("id", filter=Q(state=Finding.State.ACCEPTED), distinct=True),
+                dismissed=Count("id", filter=Q(state=Finding.State.DISMISSED), distinct=True),
+                false_positive=Count(
+                    "id", filter=Q(dismiss_reason=Finding.DismissReason.FALSE_POSITIVE), distinct=True
+                ),
+                up=Count("feedback", filter=Q(feedback__vote=FindingFeedback.Vote.UP)),
+                down=Count("feedback", filter=Q(feedback__vote=FindingFeedback.Vote.DOWN)),
+            )
+            .order_by("category")
+        )
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            decided = row["accepted"] + row["dismissed"]
+            rate = round(row["accepted"] / decided, 3) if decided else None
+            result.append({**row, "acceptance_rate": rate})
+        return Response(result)
 
 
 def _parse_date(value: str | None, default: datetime) -> datetime:

@@ -140,6 +140,12 @@ const SEVERITY_TONE: Record<Severity, "red" | "orange" | "amber" | "sky" | "slat
   info: "slate",
 };
 
+export function RiskBadge({ score }: { score: number | null | undefined }) {
+  if (score === null || score === undefined) return <span className="text-slate-400">—</span>;
+  const tone = score >= 60 ? "red" : score >= 30 ? "amber" : "green";
+  return <Badge tone={tone}>risk {score}</Badge>;
+}
+
 export function SeverityBadge({ severity }: { severity: Severity }) {
   return <Badge tone={SEVERITY_TONE[severity]}>{severity}</Badge>;
 }

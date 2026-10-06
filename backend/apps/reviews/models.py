@@ -99,6 +99,9 @@ class ReviewRun(models.Model):
     summary = models.TextField(blank=True)
     config_source = models.CharField(max_length=32, blank=True, help_text="dashboard or .reviewbot.yml")
     config_error = models.CharField(max_length=500, blank=True)
+    risk_score = models.PositiveSmallIntegerField(
+        null=True, blank=True, help_text="0-100, deterministic (RE-12)."
+    )
     input_tokens = models.PositiveIntegerField(default=0)
     output_tokens = models.PositiveIntegerField(default=0)
     provider_review_id = models.CharField(max_length=64, blank=True)
@@ -139,6 +142,18 @@ class Finding(models.Model):
         CAP_EXCEEDED = "cap_exceeded", "Inline comment cap reached"
         NOT_POSTED = "not_posted", "Not posted (review failed)"
         CATEGORY_FILTERED = "category_filtered", "Category excluded by profile"
+        DISMISSED_EARLIER = "dismissed_earlier", "Dismissed on an earlier run"
+
+    class State(models.TextChoices):
+        OPEN = "open", "Open"
+        ACCEPTED = "accepted", "Accepted"
+        DISMISSED = "dismissed", "Dismissed"
+
+    class DismissReason(models.TextChoices):
+        FALSE_POSITIVE = "false_positive", "False positive"
+        WONT_FIX = "wont_fix", "Won't fix"
+        DUPLICATE = "duplicate", "Duplicate"
+        OTHER = "other", "Other"
 
     review_run = models.ForeignKey(ReviewRun, on_delete=models.CASCADE, related_name="findings")
     fingerprint = models.CharField(max_length=64, db_index=True)
@@ -158,6 +173,12 @@ class Finding(models.Model):
     post_status = models.CharField(max_length=24, choices=PostStatus.choices, default=PostStatus.NOT_POSTED)
     provider_comment_id = models.CharField(max_length=64, blank=True)
     provider_comment_url = models.URLField(max_length=500, blank=True)
+    state = models.CharField(max_length=16, choices=State.choices, default=State.OPEN, db_index=True)
+    dismiss_reason = models.CharField(max_length=16, choices=DismissReason.choices, blank=True)
+    state_changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    state_changed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -165,6 +186,25 @@ class Finding(models.Model):
 
     def __str__(self) -> str:
         return f"{self.severity}:{self.path}:{self.line_start}"
+
+
+class FindingFeedback(models.Model):
+    """A reviewer's thumbs up/down on a finding (RE-16). One vote per user and finding."""
+
+    class Vote(models.TextChoices):
+        UP = "up", "Helpful"
+        DOWN = "down", "Not helpful"
+
+    finding = models.ForeignKey(Finding, on_delete=models.CASCADE, related_name="feedback")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    vote = models.CharField(max_length=8, choices=Vote.choices)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["finding", "user"], name="uniq_feedback_per_user")]
+
+    def __str__(self) -> str:
+        return f"{self.vote}:{self.finding_id}"
 
 
 class LLMUsage(models.Model):

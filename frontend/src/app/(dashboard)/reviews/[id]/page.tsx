@@ -3,12 +3,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   Alert,
   Badge,
   Button,
   Card,
   PageHeader,
+  RiskBadge,
+  Select,
   SeverityBadge,
   Spinner,
   StatusBadge,
@@ -18,7 +21,7 @@ import {
   formatDate,
 } from "@/components/ui";
 import { api } from "@/lib/api";
-import type { Finding, ReviewRun, ReviewRunSummary } from "@/lib/types";
+import type { DismissReason, Finding, FindingState, ReviewRun, ReviewRunSummary, RunComparison } from "@/lib/types";
 import { SEVERITIES } from "@/lib/types";
 
 const ACTIVE = new Set(["queued", "running"]);
@@ -136,6 +139,7 @@ export default function ReviewPage() {
               <Stat label="LLM requests" value={`${run.chunk_count}${run.chunks_failed ? ` (${run.chunks_failed} failed)` : ""}`} />
               <Stat label="Duration" value={run.duration_ms != null ? `${(run.duration_ms / 1000).toFixed(1)} s` : "—"} />
               <Stat label="Queued" value={formatDate(run.created_at)} />
+              <Stat label="Risk" value={<RiskBadge score={run.risk_score} />} />
               <Stat label="Profile" value={run.profile} />
               <Stat label="Config" value={run.config_source || "dashboard"} />
               <Stat
@@ -171,7 +175,7 @@ export default function ReviewPage() {
                     <h3 className="mb-2 font-mono text-xs font-semibold text-slate-700">{path}</h3>
                     <ul className="space-y-3">
                       {findings.map((f) => (
-                        <FindingItem key={f.id} finding={f} />
+                        <FindingItem key={f.id} finding={f} reviewId={id} />
                       ))}
                     </ul>
                   </div>
@@ -210,6 +214,7 @@ export default function ReviewPage() {
         </div>
 
         <aside>
+          <CompareRuns runId={run.id} history={history.data ?? []} />
           <Card title="Review history">
             {history.isLoading ? (
               <Spinner />
@@ -253,9 +258,34 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function FindingItem({ finding: f }: { finding: Finding }) {
+const DISMISS_REASONS: { value: DismissReason; label: string }[] = [
+  { value: "false_positive", label: "False positive" },
+  { value: "wont_fix", label: "Won't fix" },
+  { value: "duplicate", label: "Duplicate" },
+  { value: "other", label: "Other" },
+];
+
+function FindingItem({ finding: f, reviewId }: { finding: Finding; reviewId: string }) {
+  const queryClient = useQueryClient();
+  const [dismissing, setDismissing] = useState(false);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["review", reviewId] });
+  const setState = useMutation({
+    mutationFn: (body: { state: FindingState; dismiss_reason?: DismissReason }) =>
+      api<Finding>(`/findings/${f.id}`, { method: "PATCH", body }),
+    onSuccess: () => {
+      setDismissing(false);
+      refresh();
+    },
+  });
+  const vote = useMutation({
+    mutationFn: (value: "up" | "down") =>
+      f.votes.mine === value
+        ? api<Finding>(`/findings/${f.id}/feedback`, { method: "DELETE" })
+        : api<Finding>(`/findings/${f.id}/feedback`, { method: "PUT", body: { vote: value } }),
+    onSuccess: refresh,
+  });
   return (
-    <li className="rounded-md border border-slate-200 p-3">
+    <li className={cx("rounded-md border p-3", f.state === "dismissed" ? "border-slate-200 opacity-60" : "border-slate-200")}>
       <div className="flex flex-wrap items-center gap-2">
         <SeverityBadge severity={f.severity} />
         <Badge>{f.category}</Badge>
@@ -276,6 +306,59 @@ function FindingItem({ finding: f }: { finding: Finding }) {
       </div>
       <p className="mt-2 whitespace-pre-line text-sm text-slate-800">{f.body}</p>
       {f.suggestion && <pre className="mt-2 overflow-x-auto rounded bg-slate-900 p-2 text-xs text-slate-100">{f.suggestion}</pre>}
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2 text-xs">
+        {f.state === "accepted" && <Badge tone="green">accepted</Badge>}
+        {f.state === "dismissed" && (
+          <Badge>dismissed{f.dismiss_reason ? `: ${f.dismiss_reason.replace("_", " ")}` : ""}</Badge>
+        )}
+        {f.state !== "accepted" && (
+          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => setState.mutate({ state: "accepted" })}>
+            Accept
+          </Button>
+        )}
+        {f.state !== "dismissed" &&
+          (dismissing ? (
+            <span className="flex flex-wrap items-center gap-1">
+              {DISMISS_REASONS.map((r) => (
+                <Button
+                  key={r.value}
+                  variant="ghost"
+                  className="px-2 py-1 text-xs"
+                  onClick={() => setState.mutate({ state: "dismissed", dismiss_reason: r.value })}
+                >
+                  {r.label}
+                </Button>
+              ))}
+            </span>
+          ) : (
+            <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => setDismissing(true)}>
+              Dismiss…
+            </Button>
+          ))}
+        {f.state !== "open" && (
+          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => setState.mutate({ state: "open" })}>
+            Reopen
+          </Button>
+        )}
+        <span className="ml-auto flex items-center gap-1">
+          <Button
+            variant={f.votes.mine === "up" ? "primary" : "ghost"}
+            className="px-2 py-1 text-xs"
+            aria-label="Helpful"
+            onClick={() => vote.mutate("up")}
+          >
+            👍 {f.votes.up}
+          </Button>
+          <Button
+            variant={f.votes.mine === "down" ? "primary" : "ghost"}
+            className="px-2 py-1 text-xs"
+            aria-label="Not helpful"
+            onClick={() => vote.mutate("down")}
+          >
+            👎 {f.votes.down}
+          </Button>
+        </span>
+      </div>
     </li>
   );
 }
@@ -288,3 +371,52 @@ function groupByFile(findings: Finding[]): [string, Finding[]][] {
     .map(([path, list]) => [path, list.sort((a, b) => rank(a) - rank(b))] as [string, Finding[]])
     .sort((a, b) => Math.min(...a[1].map(rank)) - Math.min(...b[1].map(rank)));
 }
+
+function CompareRuns({ runId, history }: { runId: number; history: ReviewRunSummary[] }) {
+  const others = history.filter((h) => h.id !== runId && h.status === "completed");
+  const [withId, setWithId] = useState<string>("");
+  const comparison = useQuery({
+    queryKey: ["compare", runId, withId],
+    queryFn: () => api<RunComparison>(`/reviews/${runId}/compare?with=${withId}`),
+    enabled: Boolean(withId),
+  });
+  if (others.length === 0) return null;
+  return (
+    <Card title="Compare with another review" className="mb-6">
+      <Select aria-label="Compare with review" value={withId} onChange={(e) => setWithId(e.target.value)}>
+        <option value="">Choose a review…</option>
+        {others.map((h) => (
+          <option key={h.id} value={h.id}>
+            #{h.id} · {h.head_sha.slice(0, 7)}
+          </option>
+        ))}
+      </Select>
+      {comparison.data && (
+        <div className="mt-3 space-y-3 text-sm">
+          <ComparisonList title={`New (${comparison.data.added.length})`} findings={comparison.data.added} tone="red" />
+          <ComparisonList title={`Resolved (${comparison.data.resolved.length})`} findings={comparison.data.resolved} tone="green" />
+          <p className="text-xs text-slate-500">{comparison.data.unchanged} unchanged</p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function ComparisonList({ title, findings, tone }: { title: string; findings: Finding[]; tone: "red" | "green" }) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</p>
+      <ul className="space-y-1">
+        {findings.map((f) => (
+          <li key={f.id} className="flex items-start gap-2">
+            <Badge tone={tone}>{f.severity}</Badge>
+            <span>
+              {f.title} <span className="font-mono text-xs text-slate-500">{f.path}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
