@@ -25,7 +25,7 @@ dependencies = [
     "gunicorn>=23",
     "jsonschema>=4.23",
     "openai>=3.0,<4",
-    "anthropic>=1.0,<2",
+    "anthropic>=1.0,<3",
     "PyYAML>=6.0",
 ]
 
